@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexOS — Cloud-Powered Web OS</title>
+  <meta name="description" content="NexOS — A fully-featured cloud-powered Web Operating System running in your browser.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <link rel="stylesheet" href="css/boot.css">
+</head>
+<body>
+  <!-- Background FX -->
+  <div class="boot-bg"></div>
+  <div id="starfield"></div>
+  <div class="scanline"></div>
+
+  <!-- Boot Overlay (fades out) -->
+  <div id="boot-overlay"></div>
+
+  <!-- Boot Container -->
+  <div id="boot-container">
+
+    <!-- Phase 1: Logo -->
+    <div id="boot-logo">
+      <div class="logo-icon-wrap">
+        <svg class="logo-svg" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="20" height="20" rx="5" fill="rgba(0,212,255,0.3)" stroke="#00d4ff" stroke-width="1.5"/>
+          <rect x="28" y="4" width="20" height="20" rx="5" fill="rgba(168,85,247,0.3)" stroke="#a855f7" stroke-width="1.5"/>
+          <rect x="4" y="28" width="20" height="20" rx="5" fill="rgba(168,85,247,0.3)" stroke="#a855f7" stroke-width="1.5"/>
+          <rect x="28" y="28" width="20" height="20" rx="5" fill="rgba(0,212,255,0.3)" stroke="#00d4ff" stroke-width="1.5"/>
+          <circle cx="26" cy="26" r="5" fill="white" opacity="0.9"/>
+        </svg>
+      </div>
+      <div class="logo-text">NexOS</div>
+      <div class="logo-tagline">Cloud-Powered Web Operating System</div>
+    </div>
+
+    <!-- Phase 2: Boot Progress -->
+    <div id="boot-progress">
+      <div id="boot-log"></div>
+      <div class="progress-bar-wrap">
+        <div id="progress-bar"></div>
+      </div>
+      <div id="boot-status">Initializing kernel...</div>
+    </div>
+
+    <!-- Phase 3: Login -->
+    <div id="login-container" class="hidden">
+      <div class="login-card">
+        <div class="user-avatar">🧑‍💻</div>
+        <div class="login-username-display">Welcome to NexOS</div>
+        <div class="login-subtitle">Sign in to your cloud workspace</div>
+        <div class="login-form">
+          <div class="login-field">
+            <span class="login-field-icon">👤</span>
+            <input type="text" id="login-username" placeholder="Username" value="admin" autocomplete="off">
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon">🔑</span>
+            <input type="password" id="login-password" placeholder="Password" value="">
+          </div>
+          <div id="login-error" class="login-error hidden">Invalid username or password</div>
+          <button id="login-btn"><span>Sign In →</span></button>
+        </div>
+        <div class="login-hint">Default credentials: admin / nexos</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ── Starfield generator ──
+    const starfield = document.getElementById('starfield');
+    for (let i = 0; i < 120; i++) {
+      const star = document.createElement('div');
+      star.className = 'star';
+      const size = Math.random() * 2.5 + 0.5;
+      star.style.cssText = `
+        left: ${Math.random()*100}%;
+        top: ${Math.random()*100}%;
+        width: ${size}px;
+        height: ${size}px;
+        opacity: ${Math.random()*0.6+0.1};
+        animation-duration: ${Math.random()*4+2}s;
+        animation-delay: ${Math.random()*4}s;
+      `;
+      starfield.appendChild(star);
+    }
+
+    // ── Boot sequence ──
+    const bootMessages = [
+      { type: 'ok',   msg: 'BIOS check complete',             delay: 300  },
+      { type: 'ok',   msg: 'Memory test: 8192 MB OK',         delay: 500  },
+      { type: 'info', msg: 'Loading NexOS kernel v2.4.1...',  delay: 700  },
+      { type: 'ok',   msg: 'Kernel modules loaded',           delay: 1000 },
+      { type: 'info', msg: 'Initializing filesystem (IndexedDB)', delay: 1300 },
+      { type: 'ok',   msg: 'Virtual filesystem mounted',      delay: 1600 },
+      { type: 'info', msg: 'Connecting to cloud infrastructure...', delay: 1900 },
+      { type: 'ok',   msg: 'Cloud sync engine initialized',   delay: 2200 },
+      { type: 'ok',   msg: 'Window manager loaded',           delay: 2500 },
+      { type: 'ok',   msg: 'Desktop environment ready',       delay: 2700 },
+      { type: 'info', msg: 'Loading user session...',         delay: 2900 },
+      { type: 'ok',   msg: 'NexOS boot complete',             delay: 3100 },
+    ];
+
+    const bootLog       = document.getElementById('boot-log');
+    const progressBar   = document.getElementById('progress-bar');
+    const bootStatus    = document.getElementById('boot-status');
+    const bootProgress  = document.getElementById('boot-progress');
+    const loginContainer= document.getElementById('login-container');
+    const bootOverlay   = document.getElementById('boot-overlay');
+
+    bootMessages.forEach((item, i) => {
+      setTimeout(() => {
+        const pct = Math.round(((i+1) / bootMessages.length) * 100);
+        progressBar.style.width = pct + '%';
+        bootStatus.textContent  = item.msg;
+        const line = document.createElement('div');
+        line.className = `boot-log-line ${item.type}`;
+        line.textContent = item.msg;
+        bootLog.appendChild(line);
+        if (bootLog.children.length > 4) bootLog.firstChild.remove();
+      }, item.delay);
+    });
+
+    // Show login after boot
+    setTimeout(() => {
+      bootProgress.style.opacity = '0';
+      bootProgress.style.transform = 'translateY(-12px)';
+      bootProgress.style.transition = 'all 0.5s ease';
+      document.getElementById('boot-logo').style.display = 'none';
+
+      setTimeout(() => {
+        bootProgress.style.display = 'none';
+        loginContainer.classList.remove('hidden');
+      }, 600);
+    }, 3400);
+
+    // ── Login handler ──
+    async function doLogin() {
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value.trim();
+      const errEl = document.getElementById('login-error');
+
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/users/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          errEl.classList.add('hidden');
+          // Save session
+          sessionStorage.setItem('nexos_user', u);
+          sessionStorage.setItem('nexos_logged_in', '1');
+          sessionStorage.setItem('nexos_role', data.role);
+          // Fade out and redirect
+          bootOverlay.style.opacity = '1';
+          setTimeout(() => { window.location.href = 'os.html'; }, 800);
+        } else {
+          errEl.textContent = data.error || 'Invalid username or password';
+          errEl.classList.remove('hidden');
+          document.querySelector('.login-card').style.animation = 'iconShake 0.4s ease';
+          setTimeout(() => { document.querySelector('.login-card').style.animation = ''; }, 400);
+        }
+      } catch(e) {
+        errEl.textContent = 'Network error connecting to server';
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('login-btn').addEventListener('click', doLogin);
+    document.getElementById('login-password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
+  </script>
+</body>
+</html>

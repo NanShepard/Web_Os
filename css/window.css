@@ -1,0 +1,185 @@
+/* ============================================
+   NexOS — Window Manager Styles
+   ============================================ */
+
+/* ── Window Base ── */
+.os-window {
+  position: absolute;
+  min-width: 320px;
+  min-height: 240px;
+  background: var(--glass);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-window);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: windowOpen 0.28s cubic-bezier(0.34,1.56,0.64,1) both;
+  transition: box-shadow var(--t-fast), border-color var(--t-fast);
+  will-change: transform;
+  pointer-events: auto; /* restore from parent's pointer-events:none */
+}
+
+.os-window.focused {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-window), var(--shadow-cyan);
+}
+
+.os-window.minimized {
+  animation: windowMinimize 0.22s ease both;
+  pointer-events: none;
+}
+
+.os-window.maximized {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+  animation: none;
+}
+
+.os-window.dragging {
+  transition: none;
+  cursor: grabbing;
+  opacity: 0.95;
+}
+
+.os-window.resizing {
+  transition: none;
+  user-select: none;
+}
+
+/* ── Title Bar ── */
+.window-titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: grab;
+  user-select: none;
+  position: relative;
+}
+
+.window-titlebar:active { cursor: grabbing; }
+
+/* Traffic lights (macOS style) */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wc-btn {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  position: relative;
+  transition: filter var(--t-fast), transform var(--t-fast);
+  flex-shrink: 0;
+}
+
+.wc-btn:hover { transform: scale(1.15); filter: brightness(1.2); }
+.wc-btn:active { transform: scale(0.9); }
+
+.wc-close   { background: #ff5f57; box-shadow: 0 0 6px rgba(255,95,87,0.4); }
+.wc-min     { background: #ffbd2e; box-shadow: 0 0 6px rgba(255,189,46,0.4); }
+.wc-max     { background: #28c840; box-shadow: 0 0 6px rgba(40,200,64,0.4); }
+
+.wc-btn .wc-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+.window-controls:hover .wc-icon { opacity: 0.8; }
+
+.window-icon { font-size: 15px; flex-shrink: 0; }
+
+.window-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  margin: 0 8px;
+}
+
+.os-window.focused .window-title { color: var(--text-primary); }
+
+.window-titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.window-action-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  transition: all var(--t-fast);
+  cursor: pointer;
+}
+
+.window-action-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+
+/* ── Window Body ── */
+.window-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ── Resize Handles ── */
+.resize-handle {
+  position: absolute;
+  z-index: 100;
+}
+
+.resize-n  { top: 0; left: 6px; right: 6px; height: 4px; cursor: ns-resize; }
+.resize-s  { bottom: 0; left: 6px; right: 6px; height: 4px; cursor: ns-resize; }
+.resize-e  { right: 0; top: 6px; bottom: 6px; width: 4px; cursor: ew-resize; }
+.resize-w  { left: 0; top: 6px; bottom: 6px; width: 4px; cursor: ew-resize; }
+.resize-ne { top: 0; right: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+.resize-nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+.resize-se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+.resize-sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+
+/* ── Window Snap indicator ── */
+.snap-preview {
+  position: fixed;
+  background: rgba(0,212,255,0.08);
+  border: 2px solid rgba(0,212,255,0.4);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  z-index: 7999;
+  transition: all 0.15s ease;
+}

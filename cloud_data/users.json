@@ -1,0 +1,14 @@
+{
+  "admin": {
+    "password": "1234",
+    "role": "Administrator"
+  },
+  "cloud": {
+    "password": "cloud123",
+    "role": "Cloud Operator"
+  },
+  "user": {
+    "password": "1234",
+    "role": "Standard User"
+  }
+}

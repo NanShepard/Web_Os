@@ -1,0 +1,338 @@
+/* ============================================
+   NexOS — Boot & Login Styles
+   ============================================ */
+
+/* ── Body ── */
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Starfield ── */
+#starfield {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  animation: starTwinkle linear infinite;
+}
+
+/* ── Background gradient ── */
+.boot-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(0,212,255,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 60%),
+    var(--bg-primary);
+}
+
+/* ── Boot Container ── */
+#boot-container {
+  position: relative;
+  z-index: 10;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+/* ── Logo phase ── */
+#boot-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: bootLogoReveal 1s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+
+.logo-icon-wrap {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(168,85,247,0.15));
+  border: 1.5px solid var(--border-active);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-cyan), var(--shadow-purple), 0 0 80px rgba(0,212,255,0.08);
+  animation: cyanGlow 3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.logo-icon-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 40%, rgba(0,212,255,0.08) 100%);
+  border-radius: inherit;
+}
+
+.logo-svg {
+  width: 52px;
+  height: 52px;
+  z-index: 1;
+}
+
+.logo-text {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  background: linear-gradient(135deg, var(--cyan), #6ee7ff, var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.logo-tagline {
+  font-size: 13px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* ── Boot Progress ── */
+#boot-progress {
+  width: min(460px, 90vw);
+  margin-top: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fadeInUp 0.5s 0.8s ease both;
+}
+
+#boot-log {
+  height: 80px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.boot-log-line {
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  animation: bootLogScroll 0.2s ease both;
+  padding: 1px 0;
+  opacity: 0.8;
+}
+
+.boot-log-line.ok::before {
+  content: '[ OK ] ';
+  color: var(--green);
+}
+
+.boot-log-line.info::before {
+  content: '[INFO] ';
+  color: var(--cyan);
+}
+
+.boot-log-line.warn::before {
+  content: '[WARN] ';
+  color: var(--yellow);
+}
+
+.progress-bar-wrap {
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+  animation: progressPulse 1.5s ease-in-out infinite;
+}
+
+#boot-status {
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Login Container ── */
+#login-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.login-card {
+  width: min(380px, 90vw);
+  background: var(--glass);
+  border: 1.5px solid var(--border-active);
+  border-radius: var(--radius-xl);
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-lg), var(--shadow-cyan);
+  animation: loginCardIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+
+.user-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(168,85,247,0.2));
+  border: 2px solid var(--border-active);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  animation: avatarGlow 3s ease-in-out infinite;
+}
+
+.login-username-display {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.login-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.login-field:focus-within {
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-cyan);
+}
+
+.login-field-icon {
+  font-size: 15px;
+  opacity: 0.6;
+}
+
+.login-field input {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: none;
+}
+
+.login-field input::placeholder {
+  color: var(--text-muted);
+}
+
+#login-btn {
+  margin-top: 4px;
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.18), rgba(168,85,247,0.18));
+  border: 1.5px solid var(--border-active);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  transition: all var(--t-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+#login-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+#login-btn span { position: relative; z-index: 1; }
+
+#login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-cyan);
+}
+
+#login-btn:hover::before { opacity: 0.12; }
+#login-btn:active { transform: translateY(0); }
+
+.login-hint {
+  font-size: 11px;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+}
+
+.login-error {
+  font-size: 12px;
+  color: var(--red);
+  text-align: center;
+  padding: 6px 12px;
+  background: var(--red-dim);
+  border-radius: var(--radius-sm);
+  animation: fadeInDown 0.2s ease both;
+}
+
+/* ── Scanline overlay for boot effect ── */
+.scanline {
+  position: fixed;
+  left: 0; width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.4), transparent);
+  z-index: 100;
+  pointer-events: none;
+  animation: scanline 3s linear infinite;
+  opacity: 0.3;
+}
+
+/* ── Boot complete fade transition ── */
+#boot-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  z-index: 999;
+  opacity: 0;                   /* MUST start invisible — JS sets to 1 on login success */
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+}

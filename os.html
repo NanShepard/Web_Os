@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexOS Desktop</title>
+  <meta name="description" content="NexOS Cloud-Powered Web Operating System Desktop Environment">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <link rel="stylesheet" href="css/desktop.css">
+  <link rel="stylesheet" href="css/window.css">
+  <link rel="stylesheet" href="css/apps.css">
+</head>
+<body>
+
+<!-- Desktop -->
+<div id="desktop">
+  <div id="desktop-icons"></div>
+  <div id="windows-container"></div>
+  <div id="context-menu" class="hidden"></div>
+</div>
+
+<!-- Taskbar -->
+<div id="taskbar">
+  <button id="start-btn" title="Start Menu">
+    <svg class="start-btn-logo" viewBox="0 0 24 24" fill="none">
+      <rect x="2" y="2" width="9" height="9" rx="2" fill="rgba(0,212,255,0.7)"/>
+      <rect x="13" y="2" width="9" height="9" rx="2" fill="rgba(168,85,247,0.7)"/>
+      <rect x="2" y="13" width="9" height="9" rx="2" fill="rgba(168,85,247,0.7)"/>
+      <rect x="13" y="13" width="9" height="9" rx="2" fill="rgba(0,212,255,0.7)"/>
+    </svg>
+  </button>
+  <div class="taskbar-divider"></div>
+  <div id="taskbar-apps"></div>
+  <div id="system-tray">
+    <div class="tray-item cloud-sync-indicator synced" id="tray-cloud" title="Cloud Sync">
+      <span class="tray-icon">☁️</span>
+      <span class="tray-text" id="tray-cloud-text">Synced</span>
+    </div>
+    <div class="tray-item" id="tray-wifi" title="Network">
+      <span class="tray-icon">📶</span>
+    </div>
+    <div class="tray-item" id="tray-volume" title="Volume">
+      <span class="tray-icon">🔊</span>
+    </div>
+    <div id="clock-display" title="Date & Time">
+      <div class="clock-time" id="clock-time">00:00</div>
+      <div class="clock-date" id="clock-date">Mon, Jan 1</div>
+    </div>
+  </div>
+</div>
+
+<!-- Start Menu -->
+<div id="start-menu" class="hidden"></div>
+
+<!-- Notification Center -->
+<div id="notification-center"></div>
+
+<!-- Snap Preview -->
+<div id="snap-preview" class="snap-preview hidden"></div>
+
+<!-- Core JS (load order matters) -->
+<script src="js/kernel.js"></script>
+<script src="js/filesystem.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/window-manager.js"></script>
+<script src="js/taskbar.js"></script>
+<script src="js/desktop.js"></script>
+
+<!-- Apps -->
+<script src="js/apps/file-explorer.js"></script>
+<script src="js/apps/terminal.js"></script>
+<script src="js/apps/text-editor.js"></script>
+<script src="js/apps/browser.js"></script>
+<script src="js/apps/calculator.js"></script>
+<script src="js/apps/settings.js"></script>
+<script src="js/apps/cloud-drive.js"></script>
+<script src="js/apps/task-manager.js"></script>
+
+<script>
+  // Boot the OS
+  document.addEventListener('DOMContentLoaded', () => {
+    // Allow access without login for direct file open (dev mode)
+    if (!sessionStorage.getItem('nexos_logged_in')) {
+      sessionStorage.setItem('nexos_user', 'admin');
+      sessionStorage.setItem('nexos_logged_in', '1');
+    }
+    WebOS.Kernel.boot();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "admin:/shared/user/cloud/Hello from u1": {
+    "owner": "admin",
+    "path": "/shared/user/cloud/Hello from u1",
+    "name": "Hello from u1",
+    "type": "file",
+    "size": 94,
+    "modified": 1776172917192,
+    "synced": true,
+    "syncedAt": 1776172918895,
+    "fileId": "YWRtaW46L3NoYXJlZC91c2VyL2Nsb3VkL0hlbGxvIGZyb20gdTE"
+  },
+  "admin:/cloud/ne1": {
+    "owner": "admin",
+    "path": "/cloud/ne1",
+    "name": "ne1",
+    "type": "file",
+    "size": 84,
+    "modified": 1776172926388,
+    "synced": true,
+    "syncedAt": 1776172927888,
+    "fileId": "YWRtaW46L2Nsb3VkL25lMQ"
+  }
+}
