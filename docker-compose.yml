@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  nexos-backend:
+    build: .
+    container_name: nexos-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./cloud_data:/app/cloud_data
+    environment:
+      - PORT=8080
+      - NODE_ENV=production
+    restart: unless-stopped

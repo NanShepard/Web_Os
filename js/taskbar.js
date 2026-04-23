@@ -154,6 +154,7 @@ WebOS.Taskbar = (() => {
         <div class="start-footer-btns">
           <div class="start-footer-btn" id="smb-settings" title="Settings">⚙️</div>
           <div class="start-footer-btn" id="smb-restart"  title="Restart">🔄</div>
+          <div class="start-footer-btn" id="smb-logout"   title="Log Out">🚪</div>
           <div class="start-footer-btn danger" id="smb-shutdown" title="Shut Down">⏻</div>
         </div>
       </div>
@@ -189,6 +190,9 @@ WebOS.Taskbar = (() => {
     if (smSettings) smSettings.addEventListener('click', () => { closeStartMenu(); AppRegistry.launch('settings'); });
     if (smRestart)  smRestart.addEventListener('click',  () => { closeStartMenu(); WebOS.Kernel.restart(); });
     if (smShutdown) smShutdown.addEventListener('click', () => { closeStartMenu(); WebOS.Kernel.shutdown(); });
+
+    const smLogout = sm.querySelector('#smb-logout');
+    if (smLogout) smLogout.addEventListener('click', () => { closeStartMenu(); WebOS.Kernel.logout(); });
   }
 
   function toggleStartMenu() {

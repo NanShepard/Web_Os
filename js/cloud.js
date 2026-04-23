@@ -43,10 +43,21 @@ WebOS.Cloud = (() => {
     _startSyncLoop();
     _startNetworkSimulation();
     
-    // Poll remote server for changes periodically (e.g. deletions from other users)
-    setInterval(_fetchCloudStorage, 5000);
+    // Connect to WebSockets for real-time cloud updates
+    if (typeof io !== 'undefined') {
+      const socket = io();
+      socket.on('file_updated', () => _fetchCloudStorage());
+      socket.on('file_deleted', () => _fetchCloudStorage());
+      console.log('Cloud: Connected to Real-time Socket Server');
+    }
     
     state.initialized = true;
+  }
+
+  // Helper to build auth headers with JWT token
+  function _authHeaders() {
+    const token = sessionStorage.getItem('nexos_token');
+    return { 'Authorization': 'Bearer ' + token };
   }
 
   async function _fetchCloudStorage() {
@@ -54,15 +65,31 @@ WebOS.Cloud = (() => {
     if (!user) return;
     try {
       const res = await fetch('/api/cloud/files?prefix=/', {
-        headers: { 'x-user': user }
+        headers: _authHeaders()
       });
       const data = await res.json();
       if (data.success) {
         state.cloudStorage = {};
         for (const file of data.files) {
           state.cloudStorage[file.path] = file;
+
+          // Perform automatic downward background sync
+          if (!file.path.startsWith('/shared/')) {
+            if (file.type === 'file') {
+              const stat = await WebOS.FS.getStat(file.path);
+              if (!stat || stat.modified < file.modified) {
+                await downloadFile(file.path).catch(e => console.warn('Sync down error fetching', file.path, e));
+              }
+            } else if (file.type === 'dir') {
+              const exist = await WebOS.FS.exists(file.path);
+              if (!exist) {
+                await WebOS.FS.createDir(file.path, true).catch(()=>{});
+              }
+            }
+          }
         }
         state.usedStorage = _calcUsed();
+        WebOS.Kernel.Events.emit('fs:change', { path: '/', type: 'sync' });
         WebOS.Kernel.Events.emit('cloud:metadataUpdated');
       }
     } catch(e) { console.error('Cloud: Failed to fetch cloud metadata', e); }
@@ -140,7 +167,7 @@ WebOS.Cloud = (() => {
 
       const res = await fetch('/api/cloud/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user': sessionStorage.getItem('nexos_user') },
+        headers: { 'Content-Type': 'application/json', ..._authHeaders() },
         body: JSON.stringify({ path, content: node.content || '', size, modified: node.modified, type: node.type })
       });
       const data = await res.json();
@@ -181,7 +208,7 @@ WebOS.Cloud = (() => {
     
     const res = await fetch('/api/cloud/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user': sessionStorage.getItem('nexos_user') },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
       body: JSON.stringify({ path, content, size, modified: Date.now(), type: 'file' })
     });
     const data = await res.json();
@@ -203,7 +230,7 @@ WebOS.Cloud = (() => {
     state.networkStats.totalDown += size;
     
     const res = await fetch(`/api/cloud/download?path=${encodeURIComponent(path)}`, {
-      headers: { 'x-user': sessionStorage.getItem('nexos_user') }
+      headers: _authHeaders()
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Failed to download');
@@ -220,11 +247,22 @@ WebOS.Cloud = (() => {
     return data.content;
   }
 
+  async function executeScript(code) {
+    const res = await fetch('/api/cloud/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Execution failed\\n\\nLogs:\\n' + (data.logs||''));
+    return data;
+  }
+
   async function deleteCloudFile(path) {
     try {
       await fetch(`/api/cloud/delete?path=${encodeURIComponent(path)}`, { 
         method: 'DELETE',
-        headers: { 'x-user': sessionStorage.getItem('nexos_user') }
+        headers: _authHeaders()
       });
       delete state.cloudStorage[path];
       state.usedStorage = _calcUsed();
@@ -358,7 +396,7 @@ WebOS.Cloud = (() => {
 
   return {
     init, queueSync, forceSync,
-    uploadFile, downloadFile, deleteCloudFile, listCloudFiles,
+    uploadFile, downloadFile, deleteCloudFile, listCloudFiles, executeScript,
     runShellCommand,
     setRegion, getRegion, getRegions, getServers,
     getUsedStorage, getMaxStorage, getSyncLog, getNetworkStats,

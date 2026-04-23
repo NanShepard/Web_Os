@@ -5,16 +5,20 @@
 'use strict';
 
 WebOS.FS = (() => {
-  const DB_NAME    = 'NexOS_FS';
   const DB_VERSION = 1;
   const STORE_NAME = 'filesystem';
 
   let db = null;
 
+  function getDbName() {
+    const user = sessionStorage.getItem('nexos_user') || 'default';
+    return 'NexOS_FS_' + user;
+  }
+
   // ── Init / Open DB ──
   async function init() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const req = indexedDB.open(getDbName(), DB_VERSION);
 
       req.onerror   = () => reject(req.error);
       req.onsuccess = () => { db = req.result; resolve(); };

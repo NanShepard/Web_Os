@@ -63,31 +63,48 @@
 <div id="snap-preview" class="snap-preview hidden"></div>
 
 <!-- Core JS (load order matters) -->
+<script src="/socket.io/socket.io.js"></script>
 <script src="js/kernel.js"></script>
-<script src="js/filesystem.js"></script>
-<script src="js/cloud.js"></script>
+<script src="js/filesystem.js?v=2"></script>
+<script src="js/cloud.js?v=3"></script>
 <script src="js/window-manager.js"></script>
 <script src="js/taskbar.js"></script>
 <script src="js/desktop.js"></script>
 
 <!-- Apps -->
-<script src="js/apps/file-explorer.js"></script>
+<script src="js/apps/file-explorer.js?v=2"></script>
 <script src="js/apps/terminal.js"></script>
 <script src="js/apps/text-editor.js"></script>
 <script src="js/apps/browser.js"></script>
 <script src="js/apps/calculator.js"></script>
 <script src="js/apps/settings.js"></script>
-<script src="js/apps/cloud-drive.js"></script>
+<script src="js/apps/cloud-drive.js?v=2"></script>
 <script src="js/apps/task-manager.js"></script>
 
 <script>
-  // Boot the OS
-  document.addEventListener('DOMContentLoaded', () => {
-    // Allow access without login for direct file open (dev mode)
-    if (!sessionStorage.getItem('nexos_logged_in')) {
-      sessionStorage.setItem('nexos_user', 'admin');
-      sessionStorage.setItem('nexos_logged_in', '1');
+  // Boot the OS — with server-side token verification
+  document.addEventListener('DOMContentLoaded', async () => {
+    const token = sessionStorage.getItem('nexos_token');
+
+    // No token at all? Redirect immediately
+    if (!token || !sessionStorage.getItem('nexos_logged_in')) {
+      window.location.href = 'index.html';
+      return;
     }
+
+    // Verify token with the server before booting
+    try {
+      const res = await fetch('/api/cloud/files?prefix=/', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) throw new Error('Unauthorized');
+    } catch(e) {
+      // Token is invalid or expired — clear session and redirect to login
+      sessionStorage.clear();
+      window.location.href = 'index.html';
+      return;
+    }
+
     WebOS.Kernel.boot();
   });
 </script>

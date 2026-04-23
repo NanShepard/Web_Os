@@ -180,6 +180,9 @@ WebOS.Kernel = (() => {
     state.booted = true;
     Events.emit('os:ready', { user: state.user });
 
+    // Start JWT token expiry watcher
+    _startTokenWatcher();
+
     // Welcome notification
     setTimeout(() => {
       Notifications.show({
@@ -209,17 +212,32 @@ WebOS.Kernel = (() => {
       title: 'Shut Down',
       message: 'Are you sure you want to shut down NexOS? All unsaved data will be lost.',
       onConfirm: () => {
-        const overlay = document.getElementById('boot-overlay') || (() => {
-          const el = document.createElement('div');
-          el.id = 'boot-overlay';
-          el.style.cssText = 'position:fixed;inset:0;background:#000;z-index:99999;opacity:0;transition:opacity 0.8s ease;';
-          document.body.appendChild(el);
-          return el;
-        })();
-        overlay.style.opacity = '1';
-        setTimeout(() => { window.location.href = 'index.html'; }, 800);
+        _fadeAndRedirect();
       }
     });
+  }
+
+  function logout() {
+    WebOS.Kernel.Dialog.confirm({
+      title: 'Log Out',
+      message: `Log out of <strong>${state.user}</strong>? You will need to sign in again.`,
+      onConfirm: () => {
+        sessionStorage.clear();
+        _fadeAndRedirect();
+      }
+    });
+  }
+
+  function _fadeAndRedirect() {
+    const overlay = document.getElementById('boot-overlay') || (() => {
+      const el = document.createElement('div');
+      el.id = 'boot-overlay';
+      el.style.cssText = 'position:fixed;inset:0;background:#000;z-index:99999;opacity:0;transition:opacity 0.8s ease;';
+      document.body.appendChild(el);
+      return el;
+    })();
+    overlay.style.opacity = '1';
+    setTimeout(() => { window.location.href = 'index.html'; }, 800);
   }
 
   function restart() {
@@ -230,12 +248,38 @@ WebOS.Kernel = (() => {
     setTimeout(() => window.location.reload(), 600);
   }
 
+  // ── JWT Token Expiry Watcher ──
+  function _startTokenWatcher() {
+    setInterval(async () => {
+      const token = sessionStorage.getItem('nexos_token');
+      if (!token) return;
+      try {
+        const res = await fetch('/api/cloud/files?prefix=/', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.status === 401) {
+          Notifications.show({
+            title: 'Session Expired',
+            message: 'Your session has expired. Redirecting to login...',
+            type: 'warning',
+            icon: '🔒',
+            duration: 3000
+          });
+          setTimeout(() => {
+            sessionStorage.clear();
+            window.location.href = 'index.html';
+          }, 2000);
+        }
+      } catch(e) { /* network error — skip check */ }
+    }, 60000); // Check every 60 seconds
+  }
+
   // ── Getters ──
   function getUser()    { return state.user; }
   function getVersion() { return state.version; }
   function getUptime()  { return ProcessManager.getUptime(); }
 
-  return { boot, Events, AppRegistry, ProcessManager, Notifications, Dialog, getUser, getVersion, getUptime, shutdown, restart };
+  return { boot, Events, AppRegistry, ProcessManager, Notifications, Dialog, getUser, getVersion, getUptime, shutdown, restart, logout };
 })();
 
 /* ── Expose shortcuts ── */

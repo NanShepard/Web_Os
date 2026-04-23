@@ -38,9 +38,11 @@ AppRegistry.register({
               <div class="fe-nav-item active" data-section="files">
                 <span class="fe-nav-icon">📁</span> My Drive
               </div>
+              ${sessionStorage.getItem('nexos_role') !== 'Standard User' ? `
               <div class="fe-nav-item" data-section="shared">
                 <span class="fe-nav-icon">👥</span> Shared
               </div>
+              ` : ''}
               <div class="fe-nav-item" data-section="recent">
                 <span class="fe-nav-icon">🕐</span> Recent
               </div>
@@ -190,11 +192,15 @@ function _initCloudDrive(body) {
         const allFiles = await WebOS.FS.getAllFiles();
         items = allFiles.filter(f => f.type === 'file').sort((a,b)=>b.modified-a.modified).slice(0,15);
       } else if (section === 'shared') {
-        const cloudFiles = WebOS.Cloud.listCloudFiles('/shared');
-        items = cloudFiles.map(f => ({
-          ...f,
-          synced: true // Display files on cloud as already synced
-        }));
+        if (sessionStorage.getItem('nexos_role') !== 'Standard User') {
+          const cloudFiles = WebOS.Cloud.listCloudFiles('/shared');
+          items = cloudFiles.map(f => ({
+            ...f,
+            synced: true // Display files on cloud as already synced
+          }));
+        } else {
+          items = [];
+        }
       } else {
         items = [];
       }
@@ -281,6 +287,7 @@ function _initCloudDrive(body) {
       <div class="ctx-item" id="cctx-open"><span class="ctx-item-icon">📂</span> Open</div>
       <div class="ctx-item" id="cctx-sync"><span class="ctx-item-icon">🔄</span> Sync Now</div>
       <div class="ctx-item" id="cctx-download"><span class="ctx-item-icon">⬇️</span> Download</div>
+      ${path.endsWith('.js') ? `<div class="ctx-sep"></div><div class="ctx-item" id="cctx-execute" style="color:var(--cyan)"><span class="ctx-item-icon">⚡</span> Run in Cloud</div>` : ''}
       <div class="ctx-sep"></div>
       <div class="ctx-item danger" id="cctx-delete"><span class="ctx-item-icon">🗑️</span> Delete</div>
     `;
@@ -305,6 +312,29 @@ function _initCloudDrive(body) {
       Notify({title:'Downloaded',message:`Saved successfully.`,type:'success',icon:'✅',duration:2000}); 
       _loadFiles(currentSection);
     };
+    
+    const execBtn = ctx.querySelector('#cctx-execute');
+    if (execBtn) {
+      execBtn.onclick = async () => {
+        ctx.classList.add('hidden');
+        Notify({title:'Cloud Execution',message:`Running script on server...`,type:'info',icon:'⚡'});
+        try {
+          let node = await WebOS.FS.getStat(path);
+          if (!node) {
+            await WebOS.Cloud.downloadFile(path);
+            node = await WebOS.FS.getStat(path);
+          }
+          const res = await WebOS.Cloud.executeScript(node?.content || '');
+          WebOS.Kernel.Dialog.alert({
+            title: 'Serverless Execution Result',
+            message: `<strong>Output Logs:</strong><br><pre style="background:var(--surface-sunken);padding:10px;border-radius:6px;max-height:200px;overflow-y:auto;font-family:monospace;margin-top:10px;color:var(--text-muted);font-size:12px">${res.logs || 'No output returned'}</pre>`
+          });
+        } catch(e) {
+          WebOS.Kernel.Dialog.alert({ title: 'Execution Failed', message: `<span style="color:var(--danger)">${e.message}</span>` });
+        }
+      };
+    }
+
     ctx.querySelector('#cctx-delete').onclick = () => {
       ctx.classList.add('hidden');
       WebOS.Kernel.Dialog.confirm({

@@ -7,8 +7,15 @@
 /* ── User Manager (Server-backed) ── */
 const UserManager = (() => {
 
+  function _authHeaders() {
+    const token = sessionStorage.getItem('nexos_token');
+    return { 'Authorization': 'Bearer ' + token };
+  }
+
   async function getAll() {
-    const res = await fetch('/api/users/list');
+    const res = await fetch('/api/users/list', {
+      headers: _authHeaders()
+    });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.users; // [{ username, role }]
@@ -21,7 +28,7 @@ const UserManager = (() => {
     if (!/^[a-z0-9_-]+$/i.test(username)) throw new Error('Username can only contain letters, numbers, _ and -.');
     const res = await fetch('/api/users/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
       body: JSON.stringify({ username, password, role })
     });
     const data = await res.json();
@@ -30,7 +37,10 @@ const UserManager = (() => {
 
   async function deleteUser(username) {
     if (username === 'admin') throw new Error('Cannot delete the admin account.');
-    const res = await fetch(`/api/users/delete?username=${encodeURIComponent(username)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/users/delete?username=${encodeURIComponent(username)}`, {
+      method: 'DELETE',
+      headers: _authHeaders()
+    });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
   }
@@ -39,7 +49,7 @@ const UserManager = (() => {
     if (newPassword.length < 4) throw new Error('Password must be at least 4 characters.');
     const res = await fetch('/api/users/password', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
       body: JSON.stringify({ username, newPassword })
     });
     const data = await res.json();

@@ -263,6 +263,7 @@ function _init(body, startPath) {
     ctx.innerHTML = `
       <div class="ctx-item" id="ictx-open"><span class="ctx-item-icon">${isFile ? '📂' : '📁'}</span> Open</div>
       ${isFile ? `<div class="ctx-item" id="ictx-edit"><span class="ctx-item-icon">📝</span> Edit</div>` : ''}
+      ${path.endsWith('.js') ? `<div class="ctx-item" id="ictx-execute" style="color:var(--cyan)"><span class="ctx-item-icon">⚡</span> Run in Cloud</div>` : ''}
       <div class="ctx-sep"></div>
       <div class="ctx-item" id="ictx-rename"><span class="ctx-item-icon">✏️</span> Rename</div>
       <div class="ctx-item danger" id="ictx-delete"><span class="ctx-item-icon">🗑️</span> Delete</div>
@@ -272,6 +273,25 @@ function _init(body, startPath) {
 
     ctx.querySelector('#ictx-open').onclick = () => { ctx.classList.add('hidden'); openItem(path, type, name); };
     if (isFile) ctx.querySelector('#ictx-edit').onclick = () => { ctx.classList.add('hidden'); AppRegistry.launch('text-editor', { path }); };
+    
+    const execBtn = ctx.querySelector('#ictx-execute');
+    if (execBtn) {
+      execBtn.onclick = async () => {
+        ctx.classList.add('hidden');
+        Notify({title:'Cloud Execution',message:`Running script on server...`,type:'info',icon:'⚡'});
+        try {
+          const node = await WebOS.FS.getStat(path);
+          const res = await WebOS.Cloud.executeScript(node?.content || '');
+          WebOS.Kernel.Dialog.alert({
+            title: 'Serverless Execution Result',
+            message: `<strong>Output Logs:</strong><br><pre style="background:var(--surface-sunken);padding:10px;border-radius:6px;max-height:200px;overflow-y:auto;font-family:monospace;margin-top:10px;color:var(--text-muted);font-size:12px">${res.logs || 'No output returned'}</pre>`
+          });
+        } catch(e) {
+          WebOS.Kernel.Dialog.alert({ title: 'Execution Failed', message: `<span style="color:var(--danger)">${e.message}</span>` });
+        }
+      };
+    }
+
     ctx.querySelector('#ictx-rename').onclick = () => {
       ctx.classList.add('hidden');
       WebOS.Kernel.Dialog.prompt({

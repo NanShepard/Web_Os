@@ -163,6 +163,7 @@
           sessionStorage.setItem('nexos_user', u);
           sessionStorage.setItem('nexos_logged_in', '1');
           sessionStorage.setItem('nexos_role', data.role);
+          sessionStorage.setItem('nexos_token', data.token);
           // Fade out and redirect
           bootOverlay.style.opacity = '1';
           setTimeout(() => { window.location.href = 'os.html'; }, 800);
