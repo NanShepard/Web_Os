@@ -8,6 +8,7 @@ services:
       - "8080:8080"
     volumes:
       - ./cloud_data:/app/cloud_data
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PORT=8080
       - NODE_ENV=production

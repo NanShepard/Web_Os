@@ -129,6 +129,14 @@
   color: var(--red);
 }
 
+.ctx-shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-weight: 500;
+}
+
 /* ── Taskbar ── */
 #taskbar {
   position: fixed;

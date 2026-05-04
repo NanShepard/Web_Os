@@ -89,6 +89,7 @@ function _init(body, startPath) {
     viewMode: 'grid',
     selected: null,
     items: [],
+    clipboard: null,  // { path, name, type, mode: 'copy'|'cut' }
   };
 
   // Nav sidebar
@@ -111,6 +112,64 @@ function _init(body, startPath) {
 
   // FS change listener
   WebOS.Kernel.Events.on('fs:change', () => { if (body.isConnected) loadDir(state.currentPath); });
+
+  // Keyboard shortcuts for copy / cut / paste
+  body.addEventListener('keydown', (e) => {
+    // Don't intercept if user is typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      e.preventDefault();
+      if (state.selected) {
+        state.clipboard = { path: state.selected.path, name: state.selected.name, type: state.selected.type, mode: 'copy' };
+        Notify({ title: 'Copied', message: `"${state.selected.name}" copied to clipboard`, type: 'info', icon: '📋' });
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+      e.preventDefault();
+      if (state.selected) {
+        state.clipboard = { path: state.selected.path, name: state.selected.name, type: state.selected.type, mode: 'cut' };
+        Notify({ title: 'Cut', message: `"${state.selected.name}" ready to move`, type: 'info', icon: '✂️' });
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      e.preventDefault();
+      _pasteFromClipboard();
+    }
+    if (e.key === 'Delete' && state.selected) {
+      e.preventDefault();
+      const sel = state.selected;
+      WebOS.Kernel.Dialog.confirm({
+        title: 'Delete', message: `Delete "${sel.name}"? This cannot be undone.`, dangerous: true,
+        onConfirm: async () => { await WebOS.FS.deleteEntry(sel.path); loadDir(state.currentPath); }
+      });
+    }
+  });
+
+  // Make the explorer body focusable for keyboard events
+  body.setAttribute('tabindex', '-1');
+  body.style.outline = 'none';
+  body.focus();
+
+  async function _pasteFromClipboard() {
+    if (!state.clipboard) {
+      Notify({ title: 'Paste', message: 'Nothing in clipboard', type: 'warning' });
+      return;
+    }
+    try {
+      if (state.clipboard.mode === 'copy') {
+        await WebOS.FS.copyEntry(state.clipboard.path, state.currentPath);
+        Notify({ title: 'Pasted', message: `"${state.clipboard.name}" copied here`, type: 'success', icon: '📋' });
+      } else {
+        await WebOS.FS.moveEntry(state.clipboard.path, state.currentPath);
+        Notify({ title: 'Moved', message: `"${state.clipboard.name}" moved here`, type: 'success', icon: '✂️' });
+        state.clipboard = null; // Clear clipboard after cut-paste
+      }
+      loadDir(state.currentPath);
+    } catch(e) {
+      Notify({ title: 'Paste Failed', message: e.message, type: 'error' });
+    }
+  }
 
   loadDir(startPath);
 
@@ -260,10 +319,15 @@ function _init(body, startPath) {
   function _showItemCtxMenu(e, path, type, name) {
     const ctx    = document.getElementById('context-menu');
     const isFile = type === 'file';
+    const hasClipboard = !!state.clipboard;
     ctx.innerHTML = `
       <div class="ctx-item" id="ictx-open"><span class="ctx-item-icon">${isFile ? '📂' : '📁'}</span> Open</div>
       ${isFile ? `<div class="ctx-item" id="ictx-edit"><span class="ctx-item-icon">📝</span> Edit</div>` : ''}
       ${path.endsWith('.js') ? `<div class="ctx-item" id="ictx-execute" style="color:var(--cyan)"><span class="ctx-item-icon">⚡</span> Run in Cloud</div>` : ''}
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" id="ictx-copy"><span class="ctx-item-icon">📋</span> Copy<span class="ctx-shortcut">Ctrl+C</span></div>
+      <div class="ctx-item" id="ictx-cut"><span class="ctx-item-icon">✂️</span> Cut<span class="ctx-shortcut">Ctrl+X</span></div>
+      ${hasClipboard ? `<div class="ctx-item" id="ictx-paste"><span class="ctx-item-icon">📌</span> Paste here<span class="ctx-shortcut">Ctrl+V</span></div>` : ''}
       <div class="ctx-sep"></div>
       <div class="ctx-item" id="ictx-rename"><span class="ctx-item-icon">✏️</span> Rename</div>
       <div class="ctx-item danger" id="ictx-delete"><span class="ctx-item-icon">🗑️</span> Delete</div>
@@ -273,6 +337,25 @@ function _init(body, startPath) {
 
     ctx.querySelector('#ictx-open').onclick = () => { ctx.classList.add('hidden'); openItem(path, type, name); };
     if (isFile) ctx.querySelector('#ictx-edit').onclick = () => { ctx.classList.add('hidden'); AppRegistry.launch('text-editor', { path }); };
+
+    ctx.querySelector('#ictx-copy').onclick = () => {
+      ctx.classList.add('hidden');
+      state.clipboard = { path, name, type, mode: 'copy' };
+      Notify({ title: 'Copied', message: `"${name}" copied to clipboard`, type: 'info', icon: '📋' });
+    };
+    ctx.querySelector('#ictx-cut').onclick = () => {
+      ctx.classList.add('hidden');
+      state.clipboard = { path, name, type, mode: 'cut' };
+      Notify({ title: 'Cut', message: `"${name}" ready to move`, type: 'info', icon: '✂️' });
+    };
+    if (hasClipboard) {
+      ctx.querySelector('#ictx-paste').onclick = () => {
+        ctx.classList.add('hidden');
+        // If right-clicked on a directory, paste inside it; otherwise paste in current directory
+        const targetDir = type === 'dir' ? path : state.currentPath;
+        _pasteToDir(targetDir);
+      };
+    }
     
     const execBtn = ctx.querySelector('#ictx-execute');
     if (execBtn) {
@@ -313,6 +396,23 @@ function _init(body, startPath) {
         }
       });
     };
+  }
+
+  async function _pasteToDir(destDir) {
+    if (!state.clipboard) return;
+    try {
+      if (state.clipboard.mode === 'copy') {
+        await WebOS.FS.copyEntry(state.clipboard.path, destDir);
+        Notify({ title: 'Pasted', message: `"${state.clipboard.name}" copied here`, type: 'success', icon: '📋' });
+      } else {
+        await WebOS.FS.moveEntry(state.clipboard.path, destDir);
+        Notify({ title: 'Moved', message: `"${state.clipboard.name}" moved here`, type: 'success', icon: '✂️' });
+        state.clipboard = null;
+      }
+      loadDir(state.currentPath);
+    } catch(e) {
+      Notify({ title: 'Paste Failed', message: e.message, type: 'error' });
+    }
   }
 
   async function createFolder() {

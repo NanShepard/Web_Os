@@ -221,6 +221,72 @@ WebOS.FS = (() => {
     return newNode;
   }
 
+  async function copyEntry(srcPath, destDir) {
+    const srcNorm  = normalizePath(srcPath);
+    const destNorm = normalizePath(destDir);
+    const node     = await _get(srcNorm);
+    if (!node) throw new Error(`Not found: ${srcPath}`);
+
+    const destParent = await _get(destNorm);
+    if (!destParent || destParent.type !== 'dir') throw new Error(`Destination is not a directory: ${destDir}`);
+
+    // Resolve final name (handle duplicates)
+    let finalName = node.name;
+    let finalPath = (destNorm === '/' ? '' : destNorm) + '/' + finalName;
+    while (await _get(finalPath)) {
+      if (node.type === 'file') {
+        const dotIdx = finalName.lastIndexOf('.');
+        if (dotIdx > 0) {
+          finalName = finalName.substring(0, dotIdx) + ' (copy)' + finalName.substring(dotIdx);
+        } else {
+          finalName += ' (copy)';
+        }
+      } else {
+        finalName += ' (copy)';
+      }
+      finalPath = (destNorm === '/' ? '' : destNorm) + '/' + finalName;
+    }
+
+    if (node.type === 'file') {
+      const newNode = {
+        ...node,
+        path: finalPath,
+        name: finalName,
+        parent: destNorm,
+        created: Date.now(),
+        modified: Date.now(),
+        synced: false,
+      };
+      await _put(newNode);
+    } else {
+      // Create directory
+      await _put({
+        path: finalPath,
+        type: 'dir',
+        name: finalName,
+        parent: destNorm,
+        created: Date.now(),
+        modified: Date.now(),
+        synced: false,
+      });
+      // Recursively copy children
+      const children = await listDir(srcNorm);
+      for (const child of children) {
+        await copyEntry(child.path, finalPath);
+      }
+    }
+
+    WebOS.Kernel.Events.emit('fs:change', { path: finalPath, type: 'copy' });
+    return finalPath;
+  }
+
+  async function moveEntry(srcPath, destDir) {
+    const finalPath = await copyEntry(srcPath, destDir);
+    await deleteEntry(srcPath);
+    WebOS.Kernel.Events.emit('fs:change', { path: finalPath, type: 'move' });
+    return finalPath;
+  }
+
   async function exists(path) {
     const node = await _get(normalizePath(path));
     return !!node;
@@ -295,5 +361,5 @@ WebOS.FS = (() => {
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  return { init, listDir, readFile, writeFile, createDir, deleteEntry, renameEntry, exists, getStat, getAllFiles, getTotalSize, markSynced, normalizePath, getMimeType, getFileIcon, formatSize, formatDate };
+  return { init, listDir, readFile, writeFile, createDir, deleteEntry, renameEntry, copyEntry, moveEntry, exists, getStat, getAllFiles, getTotalSize, markSynced, normalizePath, getMimeType, getFileIcon, formatSize, formatDate };
 })();

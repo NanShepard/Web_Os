@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { initDb } = require('./database');
 const vm = require('vm');
+const { spawn } = require('child_process');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'nexos-cloud-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '24h';
@@ -19,8 +20,59 @@ const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT'] }
 });
 
+// REPL Sessions state
+const replSessions = new Map();
+
 io.on('connection', (socket) => {
   console.log('Client connected to Socket.io');
+
+  // Handle Stateful Python Notebook (Colab style via Docker)
+  socket.on('start_repl', () => {
+    // Spawn Python kernel inside an isolated Docker container
+    const containerName = `nexos-kernel-${socket.id}`;
+    const dockerArgs = [
+      'run', '-i', '--rm',
+      '--name', containerName,
+      '--memory', '256m',
+      '--cpus', '0.5',
+      'nexos-python-kernel'
+    ];
+    
+    const pythonProcess = spawn('docker', dockerArgs);
+    replSessions.set(socket.id, pythonProcess);
+
+    pythonProcess.stdout.on('data', (data) => {
+      socket.emit('repl_output', data.toString());
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      socket.emit('repl_output', data.toString());
+    });
+
+    pythonProcess.on('close', (code) => {
+      socket.emit('repl_output', `\n[Kernel disconnected]\n`);
+      replSessions.delete(socket.id);
+    });
+  });
+
+  socket.on('execute_cell', ({ cellId, code }) => {
+    const pythonProcess = replSessions.get(socket.id);
+    if (pythonProcess) {
+      const b64 = Buffer.from(code).toString('base64');
+      pythonProcess.stdin.write(`RUN|${cellId}|${b64}\n`);
+    } else {
+      socket.emit('repl_output', `\n[No active Python kernel. Please close and reopen.]\n__NEXOS_CELL_COMPLETE__${cellId}__\n`);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const pythonProcess = replSessions.get(socket.id);
+    if (pythonProcess) {
+      // Forcefully remove the Docker container
+      spawn('docker', ['rm', '-f', `nexos-kernel-${socket.id}`]);
+      replSessions.delete(socket.id);
+    }
+  });
 });
 
 const PORT = process.env.PORT || 8080;

@@ -10,6 +10,9 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install --production
 
+# Install Docker CLI so the Node server can spawn containers
+RUN apk add --no-cache docker-cli
+
 # Copy the rest of the application files
 COPY . .
 
