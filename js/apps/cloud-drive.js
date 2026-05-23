@@ -349,7 +349,7 @@ function _initCloudDrive(body) {
       WebOS.Kernel.Dialog.prompt({
         title: 'Share File',
         message: `Enter username to share "${path.split('/').pop()}" with:`,
-        onSubmit: async (username) => {
+        onConfirm: async (username) => {
           if (!username) return;
           try {
             await WebOS.Cloud.shareFile(path, username);

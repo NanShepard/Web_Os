@@ -373,6 +373,13 @@ app.post('/api/cloud/share', getUserRole, async (req, res) => {
     const file = await db.get('SELECT * FROM metadata WHERE id = ?', [metaKey]);
     if (!file) return res.status(404).json({ error: 'File not found' });
 
+    // Prevent duplicate share entries
+    const alreadyShared = await db.get(
+      'SELECT id FROM shared_files WHERE path = ? AND owner = ? AND sharedWith = ?',
+      [clientPath, req.user, shareWith]
+    );
+    if (alreadyShared) return res.json({ success: true, message: 'Already shared' });
+
     await db.run(
       'INSERT INTO shared_files (path, owner, sharedWith, permissions) VALUES (?, ?, ?, ?)',
       [clientPath, req.user, shareWith, 'read']
