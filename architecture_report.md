@@ -8,6 +8,55 @@ Trong kỷ nguyên số hóa, nhu cầu làm việc linh hoạt, không phụ th
 ## 1. Kiến Trúc Tổng Thể Hệ Thống (System Architecture)
 Hệ thống NexOS được thiết kế theo kiến trúc **Client-Server 3 Lớp (3-Tier Architecture)** kết hợp với mô hình **Event-Driven (Hướng sự kiện)**:
 
+```mermaid
+graph TD
+    subgraph Client ["1. Lớp Client-Side (Trình Duyệt Web)"]
+        direction TB
+        UI["Giao diện Đồ họa<br>(Window Manager & Desktop)"]
+        Kernel["OS Kernel<br>(Process & Event Bus)"]
+        VFS[("Ổ cứng Ảo<br>IndexedDB")]
+        WASM["Web Workers<br>(Pyodide Wasm)"]
+        
+        UI <--> Kernel
+        Kernel <--> VFS
+        Kernel <--> WASM
+    end
+
+    subgraph Network ["2. Lớp Mạng (Network & API)"]
+        REST{"RESTful API<br>(HTTP/HTTPS)"}
+        WS{"WebSockets<br>(Socket.IO)"}
+    end
+
+    subgraph Server ["3. Lớp Server-Side (Cloud Backend)"]
+        direction TB
+        Node["Node.js Backend<br>(Express.js)"]
+        Sandbox["VM Sandbox<br>(FaaS / Run in Cloud)"]
+        SQLite[("SQLite DB<br>(Metadata & Users)")]
+        Storage[("Lưu trữ Vật lý<br>(/cloud_data)")]
+        
+        Node --> Sandbox
+        Node <--> SQLite
+        Node <--> Storage
+    end
+
+    %% Connections
+    Kernel -- Đăng nhập / Upload / Gọi hàm --> REST
+    REST --> Node
+    
+    Kernel -- Cập nhật File / Chỉ số CPU, RAM --> WS
+    WS <--> Node
+
+    classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+    classDef network fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+    classDef server fill:#f3e8ff,stroke:#9333ea,stroke-width:2px;
+    classDef db fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
+
+    class Client client;
+    class Network network;
+    class Server server;
+    class VFS,SQLite,Storage db;
+```
+
 1.  **Lớp Trình Bày & Xử Lý Khách (Client-Side / Frontend):**
     *   Đóng vai trò là toàn bộ Giao diện Hệ điều hành (GUI).
     *   Sở hữu một **Kernel (Nhân hệ điều hành) mô phỏng** viết bằng Javascript để quản lý tiến trình (Process Manager), quản lý cửa sổ (Window Manager), và hệ thống sự kiện (Event Bus).
