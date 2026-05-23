@@ -66,7 +66,7 @@
           <div id="login-error" class="login-error hidden">Invalid username or password</div>
           <button id="login-btn"><span>Sign In →</span></button>
         </div>
-        <div class="login-hint">Default credentials: admin / nexos</div>
+        <div class="login-hint" id="login-toggle" style="cursor:pointer; color:var(--cyan); text-decoration:underline;">Create an account</div>
       </div>
     </div>
 
@@ -141,6 +141,26 @@
     }, 3400);
 
     // ── Login handler ──
+    let isRegisterMode = false;
+
+    document.getElementById('login-toggle').addEventListener('click', () => {
+      isRegisterMode = !isRegisterMode;
+      const btn = document.getElementById('login-btn');
+      const toggle = document.getElementById('login-toggle');
+      const subtitle = document.querySelector('.login-subtitle');
+      
+      if (isRegisterMode) {
+        btn.innerHTML = '<span>Create Account →</span>';
+        toggle.textContent = 'Already have an account? Sign In';
+        subtitle.textContent = 'Create a new cloud workspace';
+      } else {
+        btn.innerHTML = '<span>Sign In →</span>';
+        toggle.textContent = 'Create an account';
+        subtitle.textContent = 'Sign in to your cloud workspace';
+      }
+      document.getElementById('login-error').classList.add('hidden');
+    });
+
     async function doLogin() {
       const u = document.getElementById('login-username').value.trim();
       const p = document.getElementById('login-password').value.trim();
@@ -148,6 +168,42 @@
 
       const btn = document.getElementById('login-btn');
       btn.disabled = true;
+
+      if (isRegisterMode) {
+        if (u.length < 3 || p.length < 4) {
+          errEl.textContent = 'Username ≥ 3 chars, Password ≥ 4 chars';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/users/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u, password: p })
+          });
+          const data = await res.json();
+
+          if (data.success) {
+            // Auto-login after successful registration
+            isRegisterMode = false;
+            await doLogin();
+            return;
+          } else {
+            errEl.textContent = data.error || 'Registration failed';
+            errEl.classList.remove('hidden');
+            document.querySelector('.login-card').style.animation = 'iconShake 0.4s ease';
+            setTimeout(() => { document.querySelector('.login-card').style.animation = ''; }, 400);
+          }
+        } catch(e) {
+          errEl.textContent = 'Network error connecting to server';
+          errEl.classList.remove('hidden');
+        } finally {
+          btn.disabled = false;
+        }
+        return;
+      }
 
       try {
         const res = await fetch('/api/users/login', {

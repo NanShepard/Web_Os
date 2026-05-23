@@ -498,6 +498,28 @@ app.post('/api/users/login', async (req, res) => {
   }
 });
 
+// 1.5. Register — public endpoint
+app.post('/api/users/register', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ success: false, error: 'Username and password required' });
+  
+  // Basic validation
+  if (username.length < 3 || password.length < 4) {
+    return res.status(400).json({ success: false, error: 'Username must be at least 3 chars, password at least 4' });
+  }
+
+  try {
+    const exist = await db.get('SELECT username FROM users WHERE username = ?', [username]);
+    if (exist) return res.status(400).json({ success: false, error: 'Username is already taken' });
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hashedPassword, 'Standard User']);
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // 2. List Users (protected — requires login)
 app.get('/api/users/list', getUserRole, async (req, res) => {
   try {
