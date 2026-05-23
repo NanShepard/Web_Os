@@ -41,6 +41,25 @@ async function initDb() {
       syncedAt INTEGER,
       fileId TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS file_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      fileId TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      size INTEGER NOT NULL,
+      modified INTEGER NOT NULL,
+      timestamp INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS shared_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      sharedWith TEXT NOT NULL,
+      permissions TEXT NOT NULL
+    );
   `);
 
   // Migration step: Port old JSON users to SQLite if empty

@@ -17,6 +17,16 @@ WebOS.Kernel = (() => {
     processes: [],
   };
 
+  // ── Real Metrics State ──
+  const _metrics = {
+    clientCpu: 0, clientMem: 0, clientMemMB: 0, clientMemTotalMB: 0,
+    serverCpu: 0, serverMem: 0, serverMemUsedMB: 0, serverMemTotalMB: 0,
+    serverProcessMB: 0, serverUptime: 0, serverCores: 0,
+    serverHostname: '', serverCpuModel: '', serverPlatform: '',
+  };
+  let _loopLast = performance.now();
+  const _loopDelays = [];
+
   // ── Event Bus ──
   const _listeners = {};
   const Events = {
@@ -61,8 +71,10 @@ WebOS.Kernel = (() => {
       }
     },
     getUptime()  { return Math.floor((Date.now() - state.startTime) / 1000); },
-    getMemUsage(){ return Math.floor(20 + Math.random() * 15); }, // Simulated %
-    getCpuUsage(){ return Math.floor(3 + Math.random() * 12);  }  // Simulated %
+    getMemUsage(){ return _metrics.clientMem || 0; },
+    getCpuUsage(){ return _metrics.clientCpu || 0; },
+    getServerCpu(){ return _metrics.serverCpu || 0; },
+    getServerMem(){ return _metrics.serverMem || 0; },
   };
 
   // ── Notifications ──
@@ -180,6 +192,9 @@ WebOS.Kernel = (() => {
     state.booted = true;
     Events.emit('os:ready', { user: state.user });
 
+    // Start real metrics collection
+    _startMetricsCollection();
+
     // Start JWT token expiry watcher
     _startTokenWatcher();
 
@@ -279,10 +294,70 @@ WebOS.Kernel = (() => {
   function getVersion() { return state.version; }
   function getUptime()  { return ProcessManager.getUptime(); }
 
-  return { boot, Events, AppRegistry, ProcessManager, Notifications, Dialog, getUser, getVersion, getUptime, shutdown, restart, logout };
+  return { boot, Events, AppRegistry, ProcessManager, Notifications, Dialog, getUser, getVersion, getUptime, shutdown, restart, logout, getMetrics() { return { ..._metrics }; }, _metricsRef: _metrics };
 })();
 
 /* ── Expose shortcuts ── */
 const WebOSEvents  = WebOS.Kernel.Events;
 const AppRegistry  = WebOS.Kernel.AppRegistry;
 const Notify       = (opts) => WebOS.Kernel.Notifications.show(opts);
+
+/* ── Real Metrics Collection ── */
+function _startMetricsCollection() {
+  const _metrics = WebOS.Kernel._metricsRef;
+
+  // Client CPU via event loop delay (200ms interval)
+  let _loopLast = performance.now();
+  const _loopDelays = [];
+  setInterval(() => {
+    const now = performance.now();
+    const delay = Math.max(0, (now - _loopLast) - 200);
+    _loopDelays.push(delay);
+    if (_loopDelays.length > 15) _loopDelays.shift();
+    const avg = _loopDelays.reduce((a, b) => a + b, 0) / _loopDelays.length;
+    _metrics.clientCpu = Math.min(100, Math.round((avg / 200) * 100));
+    _loopLast = now;
+  }, 200);
+
+  // Client Memory via Performance API
+  setInterval(() => {
+    if (performance.memory) {
+      _metrics.clientMemMB = Math.round(performance.memory.usedJSHeapSize / 1048576);
+      _metrics.clientMemTotalMB = Math.round(performance.memory.jsHeapSizeLimit / 1048576);
+      _metrics.clientMem = Math.round((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100);
+    } else {
+      // Fallback: estimate from DOM node count
+      const nodes = document.querySelectorAll('*').length;
+      _metrics.clientMemMB = Math.round(nodes * 0.004 + 12);
+      _metrics.clientMemTotalMB = 256;
+      _metrics.clientMem = Math.min(100, Math.round((_metrics.clientMemMB / _metrics.clientMemTotalMB) * 100));
+    }
+  }, 2000);
+
+  // Server Metrics via API
+  async function fetchServerMetrics() {
+    try {
+      const token = sessionStorage.getItem('nexos_token');
+      if (!token) return;
+      const res = await fetch('/api/system/metrics', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success) {
+        _metrics.serverCpu = data.cpu.usage;
+        _metrics.serverMem = data.memory.percentage;
+        _metrics.serverMemUsedMB = Math.round(data.memory.used / 1048576);
+        _metrics.serverMemTotalMB = Math.round(data.memory.total / 1048576);
+        _metrics.serverProcessMB = Math.round(data.process.rss / 1048576);
+        _metrics.serverUptime = data.uptime.system;
+        _metrics.serverCores = data.cpu.cores;
+        _metrics.serverHostname = data.hostname;
+        _metrics.serverCpuModel = data.cpu.model;
+        _metrics.serverPlatform = data.platform;
+      }
+    } catch(e) { /* skip on network error */ }
+  }
+  fetchServerMetrics();
+  setInterval(fetchServerMetrics, 3000);
+}

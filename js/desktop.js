@@ -13,7 +13,7 @@ WebOS.Desktop = (() => {
     { id: 'text-editor',  label: 'Text Editor',  emoji: '📝', appId: 'text-editor' },
     { id: 'calculator',   label: 'Calculator',   emoji: '🔢', appId: 'calculator' },
     { id: 'task-manager', label: 'Task Manager', emoji: '📊', appId: 'task-manager' },
-    { id: 'python-repl',  label: 'Python REPL',  emoji: '🐍', appId: 'python-repl' },
+    { id: 'python-repl',  label: 'NexNotebook',  emoji: '🐍', appId: 'python-repl' },
     { id: 'settings',     label: 'Settings',     emoji: '⚙️', appId: 'settings' },
   ];
 

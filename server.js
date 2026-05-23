@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { initDb } = require('./database');
 const vm = require('vm');
-const { spawn } = require('child_process');
+const os = require('os');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'nexos-cloud-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '24h';
@@ -20,59 +20,8 @@ const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT'] }
 });
 
-// REPL Sessions state
-const replSessions = new Map();
-
 io.on('connection', (socket) => {
   console.log('Client connected to Socket.io');
-
-  // Handle Stateful Python Notebook (Colab style via Docker)
-  socket.on('start_repl', () => {
-    // Spawn Python kernel inside an isolated Docker container
-    const containerName = `nexos-kernel-${socket.id}`;
-    const dockerArgs = [
-      'run', '-i', '--rm',
-      '--name', containerName,
-      '--memory', '256m',
-      '--cpus', '0.5',
-      'nexos-python-kernel'
-    ];
-    
-    const pythonProcess = spawn('docker', dockerArgs);
-    replSessions.set(socket.id, pythonProcess);
-
-    pythonProcess.stdout.on('data', (data) => {
-      socket.emit('repl_output', data.toString());
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      socket.emit('repl_output', data.toString());
-    });
-
-    pythonProcess.on('close', (code) => {
-      socket.emit('repl_output', `\n[Kernel disconnected]\n`);
-      replSessions.delete(socket.id);
-    });
-  });
-
-  socket.on('execute_cell', ({ cellId, code }) => {
-    const pythonProcess = replSessions.get(socket.id);
-    if (pythonProcess) {
-      const b64 = Buffer.from(code).toString('base64');
-      pythonProcess.stdin.write(`RUN|${cellId}|${b64}\n`);
-    } else {
-      socket.emit('repl_output', `\n[No active Python kernel. Please close and reopen.]\n__NEXOS_CELL_COMPLETE__${cellId}__\n`);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    const pythonProcess = replSessions.get(socket.id);
-    if (pythonProcess) {
-      // Forcefully remove the Docker container
-      spawn('docker', ['rm', '-f', `nexos-kernel-${socket.id}`]);
-      replSessions.delete(socket.id);
-    }
-  });
 });
 
 const PORT = process.env.PORT || 8080;
@@ -117,6 +66,33 @@ class StorageProvider {
 // Global scope vars
 let db;
 const storage = new StorageProvider(path.join(__dirname, 'cloud_data'));
+
+// Real CPU metrics — sample os.cpus() every 2s and compute delta
+let _prevCpuSample = null;
+let _serverCpuPercent = 0;
+
+function _sampleCpuTimes() {
+  const cpus = os.cpus();
+  let idle = 0, total = 0;
+  cpus.forEach(cpu => {
+    for (const type in cpu.times) total += cpu.times[type];
+    idle += cpu.times.idle;
+  });
+  return { idle, total };
+}
+
+_prevCpuSample = _sampleCpuTimes();
+setInterval(() => {
+  const curr = _sampleCpuTimes();
+  if (_prevCpuSample) {
+    const idleDelta = curr.idle - _prevCpuSample.idle;
+    const totalDelta = curr.total - _prevCpuSample.total;
+    _serverCpuPercent = totalDelta > 0
+      ? parseFloat(((1 - idleDelta / totalDelta) * 100).toFixed(1))
+      : 0;
+  }
+  _prevCpuSample = curr;
+}, 2000);
 
 // Serve static files of NexOS
 app.use(express.static(__dirname, { index: 'index.html' }));
@@ -180,6 +156,17 @@ app.post('/api/cloud/upload', getUserRole, async (req, res) => {
       fileId: fileId
     };
 
+    const existingFile = await db.get('SELECT fileId FROM metadata WHERE id = ?', [fileMeta.id]);
+    if (existingFile && existingFile.fileId !== fileId) {
+      // Save old version
+      const oldVersionCount = await db.get('SELECT COUNT(*) as c FROM file_versions WHERE id = ?', [fileMeta.id]);
+      const vNum = (oldVersionCount?.c || 0) + 1;
+      await db.run(
+        'INSERT INTO file_versions (path, owner, fileId, version, size, modified, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [fileMeta.path, fileMeta.owner, existingFile.fileId, vNum, fileSize, Date.now(), Date.now()]
+      );
+    }
+
     await db.run(`
       INSERT INTO metadata (id, owner, path, name, type, size, modified, syncedAt, fileId) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -202,17 +189,24 @@ app.get('/api/cloud/download', getUserRole, async (req, res) => {
 
   let targetOwner = req.user;
 
-  // Resolving shared path retrieval
+  // Check shared_files table if not admin
   if (clientPath.startsWith('/shared/')) {
     const parts = clientPath.split('/'); 
     if (parts.length > 2) {
       const requestedOwner = parts[2];
       const actualPath = '/' + parts.slice(3).join('/'); 
       
-      // Only Admins/Cloud Operators can see other users' files
       if (req.role === 'Administrator' || req.role === 'Cloud Operator') {
         targetOwner = requestedOwner;
         clientPath = actualPath;
+      } else {
+        const isShared = await db.get('SELECT * FROM shared_files WHERE owner = ? AND path = ? AND sharedWith = ?', [requestedOwner, actualPath, req.user]);
+        if (isShared) {
+          targetOwner = requestedOwner;
+          clientPath = actualPath;
+        } else {
+          return res.status(403).json({ error: 'Permission denied' });
+        }
       }
     }
   }
@@ -284,13 +278,24 @@ app.get('/api/cloud/files', getUserRole, async (req, res) => {
     }
 
     // Retrieving everyone's files prefixed via /shared/
-    // Real Cloud Computing: standard users cannot see other users' files at all.
     if (req.role === 'Administrator' || req.role === 'Cloud Operator') {
       const allFiles = await db.all('SELECT * FROM metadata WHERE owner != ?', [req.user]);
       for (const f of allFiles) {
         const sharedPath = `/shared/${f.owner}${f.path}`;
         if (sharedPath.startsWith(prefix) || prefix.startsWith('/shared')) {
           files.push({ ...f, path: sharedPath, synced: true });
+        }
+      }
+    } else {
+      // For standard users, show only explicitly shared files
+      const sharedWithMe = await db.all('SELECT * FROM shared_files WHERE sharedWith = ?', [req.user]);
+      for (const share of sharedWithMe) {
+        const f = await db.get('SELECT * FROM metadata WHERE owner = ? AND path = ?', [share.owner, share.path]);
+        if (f) {
+          const sharedPath = `/shared/${f.owner}${f.path}`;
+          if (sharedPath.startsWith(prefix) || prefix.startsWith('/shared')) {
+            files.push({ ...f, path: sharedPath, synced: true });
+          }
         }
       }
     }
@@ -301,7 +306,85 @@ app.get('/api/cloud/files', getUserRole, async (req, res) => {
   }
 });
 
-// 5. Execute Cloud Function (Serverless Engine)
+// 5. Version History
+app.get('/api/cloud/versions', getUserRole, async (req, res) => {
+  const { path: clientPath } = req.query;
+  if (!clientPath) return res.status(400).json({ error: 'Path is required' });
+  try {
+    const versions = await db.all('SELECT version, size, modified, timestamp, fileId FROM file_versions WHERE owner = ? AND path = ? ORDER BY version DESC', [req.user, clientPath]);
+    res.json({ success: true, versions });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 6. Restore Version
+app.post('/api/cloud/restore', getUserRole, async (req, res) => {
+  const { path: clientPath, version } = req.body;
+  if (!clientPath || !version) return res.status(400).json({ error: 'Path and version required' });
+  
+  try {
+    const oldVer = await db.get('SELECT * FROM file_versions WHERE owner = ? AND path = ? AND version = ?', [req.user, clientPath, version]);
+    if (!oldVer) return res.status(404).json({ error: 'Version not found' });
+    
+    const metaKey = `${req.user}:${clientPath}`;
+    const curMeta = await db.get('SELECT * FROM metadata WHERE id = ?', [metaKey]);
+    if (!curMeta) return res.status(404).json({ error: 'Current file metadata not found' });
+
+    // Read old content
+    const content = storage.readFile(oldVer.fileId);
+    if (content === null) return res.status(404).json({ error: 'File data missing' });
+
+    // Save as new current version
+    const newFileId = Buffer.from(`${metaKey}:${Date.now()}`).toString('base64').replace(/=/g, '');
+    storage.saveFile(newFileId, content);
+
+    // Save current active version to versions history
+    const oldVersionCount = await db.get('SELECT COUNT(*) as c FROM file_versions WHERE owner = ? AND path = ?', [req.user, clientPath]);
+    await db.run(
+      'INSERT INTO file_versions (path, owner, fileId, version, size, modified, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [clientPath, req.user, curMeta.fileId, (oldVersionCount?.c || 0) + 1, curMeta.size, Date.now(), Date.now()]
+    );
+
+    // Update active metadata
+    await db.run(
+      'UPDATE metadata SET size = ?, modified = ?, syncedAt = ?, fileId = ? WHERE id = ?',
+      [oldVer.size, Date.now(), Date.now(), newFileId, metaKey]
+    );
+
+    io.emit('file_updated');
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 7. Share File
+app.post('/api/cloud/share', getUserRole, async (req, res) => {
+  const { path: clientPath, shareWith } = req.body;
+  if (!clientPath || !shareWith) return res.status(400).json({ error: 'Path and shareWith required' });
+  if (shareWith === req.user) return res.status(400).json({ error: 'Cannot share with yourself' });
+
+  try {
+    const exist = await db.get('SELECT username FROM users WHERE username = ?', [shareWith]);
+    if (!exist) return res.status(404).json({ error: 'Target user not found' });
+
+    const metaKey = `${req.user}:${clientPath}`;
+    const file = await db.get('SELECT * FROM metadata WHERE id = ?', [metaKey]);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+
+    await db.run(
+      'INSERT INTO shared_files (path, owner, sharedWith, permissions) VALUES (?, ?, ?, ?)',
+      [clientPath, req.user, shareWith, 'read']
+    );
+
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 8. Execute Cloud Function (Serverless Engine)
 app.post('/api/cloud/execute', getUserRole, async (req, res) => {
   const content = req.body.code;
   if (!content) return res.status(400).json({ error: 'Source code is required' });
@@ -333,6 +416,41 @@ app.post('/api/cloud/execute', getUserRole, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// 6. Real System Metrics
+app.get('/api/system/metrics', getUserRole, (req, res) => {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const procMem = process.memoryUsage();
+  const cpus = os.cpus();
+
+  res.json({
+    success: true,
+    cpu: {
+      usage: _serverCpuPercent,
+      cores: cpus.length,
+      model: (cpus[0]?.model || 'Unknown').trim(),
+    },
+    memory: {
+      total: totalMem,
+      used: usedMem,
+      free: freeMem,
+      percentage: parseFloat(((usedMem / totalMem) * 100).toFixed(1)),
+    },
+    process: {
+      rss: procMem.rss,
+      heapUsed: procMem.heapUsed,
+      heapTotal: procMem.heapTotal,
+    },
+    uptime: {
+      system: Math.floor(os.uptime()),
+      process: Math.floor(process.uptime()),
+    },
+    platform: os.platform(),
+    hostname: os.hostname(),
+  });
 });
 
 // --- USER ROUTES ---

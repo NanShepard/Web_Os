@@ -169,36 +169,40 @@ function _initTaskManager(body) {
   }
 
   // ── Performance Tab ──
-  const perfHistory = { cpu:[], mem:[], disk:[], cloud:[] };
+  const perfHistory = { cpu:[], mem:[], scpu:[], smem:[] };
 
   function renderPerformance(content, update = false) {
-    const cpu  = WebOS.Kernel.ProcessManager.getCpuUsage();
-    const mem  = WebOS.Kernel.ProcessManager.getMemUsage();
-    const disk = Math.floor(Math.random() * 8  + 1);
-    const cloud= Math.floor(Math.random() * 20 + 2);
+    const cpu    = WebOS.Kernel.ProcessManager.getCpuUsage();
+    const mem    = WebOS.Kernel.ProcessManager.getMemUsage();
+    const m      = WebOS.Kernel.getMetrics();
+    const scpu   = m.serverCpu || 0;
+    const smem   = m.serverMem || 0;
 
     if (!update || !content.querySelector('.tm-perf-grid')) {
       content.innerHTML = `
         <div class="tm-perf-grid">
-          ${_perfCard('CPU', cpu, '%', 'cyan', 'cpu')}
-          ${_perfCard('Memory', mem, '%', 'purple', 'mem')}
-          ${_perfCard('Disk I/O', disk, ' MB/s', 'green', 'disk')}
-          ${_perfCard('Cloud Sync', cloud, ' KB/s', 'yellow', 'cloud')}
+          ${_perfCard('Client CPU', cpu, '%', 'cyan', 'cpu', `Event loop · Browser`)}
+          ${_perfCard('Server CPU', scpu, '%', 'green', 'scpu', `${m.serverCpuModel || 'Unknown'} · ${m.serverCores || '?'} cores`)}
+          ${_perfCard('Client Memory', mem, '%', 'purple', 'mem', `JS Heap · ${m.clientMemMB || 0} / ${m.clientMemTotalMB || 0} MB`)}
+          ${_perfCard('Server Memory', smem, '%', 'yellow', 'smem', `${m.serverMemUsedMB || 0} / ${m.serverMemTotalMB || 0} MB · NexOS process: ${m.serverProcessMB || 0} MB`)}
         </div>
         <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">System Info</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
             ${[
-              ['OS', 'NexOS 2.4.1'],
-              ['Build', 'Cloud Edition'],
-              ['Uptime', `${WebOS.Kernel.getUptime()}s`],
+              ['Server Host', m.serverHostname || '—'],
+              ['Platform', m.serverPlatform || '—'],
+              ['CPU Model', m.serverCpuModel || '—'],
+              ['Server Cores', m.serverCores ? `${m.serverCores} vCPU` : '—'],
+              ['Server Uptime', m.serverUptime ? _fmtUptime(m.serverUptime) : '—'],
+              ['Session Uptime', _fmtUptime(WebOS.Kernel.getUptime())],
               ['Processes', `${WebOS.Kernel.ProcessManager.getAll().length + 5}`],
               ['Windows', `${WebOS.WindowManager.getAllWindows().length}`],
               ['Cloud Region', WebOS.Cloud.getRegion().id],
             ].map(([k,v])=>`
               <div style="background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:10px 12px">
                 <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${k}</div>
-                <div style="font-size:14px;font-family:var(--font-mono);color:var(--text-primary)">${v}</div>
+                <div style="font-size:13px;font-family:var(--font-mono);color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v}">${v}</div>
               </div>
             `).join('')}
           </div>
@@ -206,30 +210,41 @@ function _initTaskManager(body) {
       `;
     } else {
       // Update values only
-      ['cpu','mem','disk','cloud'].forEach((key, i) => {
+      ['cpu','scpu','mem','smem'].forEach((key, i) => {
         const els = content.querySelectorAll('.tm-perf-value');
-        const idx = content.querySelectorAll('.tm-perf-title');
         if (els[i]) {
-          const vals = [cpu, mem, disk, cloud];
-          const sfxs = ['%','%',' MB/s',' KB/s'];
-          els[i].textContent = `${vals[i]}${sfxs[i]}`;
+          const vals = [cpu, scpu, mem, smem];
+          els[i].textContent = `${vals[i]}%`;
         }
+        // Update subtitles with fresh data
+        const subs = content.querySelectorAll('.tm-perf-sub');
+        if (subs[1]) subs[1].textContent = `${m.serverCpuModel || 'Unknown'} · ${m.serverCores || '?'} cores`;
+        if (subs[2]) subs[2].textContent = `JS Heap · ${m.clientMemMB || 0} / ${m.clientMemTotalMB || 0} MB`;
+        if (subs[3]) subs[3].textContent = `${m.serverMemUsedMB || 0} / ${m.serverMemTotalMB || 0} MB · NexOS process: ${m.serverProcessMB || 0} MB`;
       });
     }
 
     // Update graph bars
-    ['cpu','mem','disk','cloud'].forEach((key,i) => {
-      const vals = [cpu, mem, disk, cloud];
-      const max  = [100, 100, 100, 100];
+    ['cpu','scpu','mem','smem'].forEach((key,i) => {
+      const vals = [cpu, scpu, mem, smem];
       if (!perfHistory[key]) perfHistory[key] = [];
       perfHistory[key].push(vals[i]);
       if (perfHistory[key].length > 20) perfHistory[key].shift();
       const graph = content.querySelector(`#graph-${key}`);
-      if (graph) _renderGraph(graph, perfHistory[key], max[i], key);
+      if (graph) _renderGraph(graph, perfHistory[key], 100, key);
     });
   }
 
-  function _perfCard(title, value, suffix, color, key) {
+  function _fmtUptime(s) {
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const min = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${min}m`;
+    if (h > 0) return `${h}h ${min}m`;
+    return `${min}m ${s % 60}s`;
+  }
+
+  function _perfCard(title, value, suffix, color, key, subtitle) {
     return `
       <div class="tm-perf-card">
         <div class="tm-perf-header">
@@ -237,15 +252,13 @@ function _initTaskManager(body) {
           <div class="tm-perf-value ${color}">${value}${suffix}</div>
         </div>
         <div class="tm-graph" id="graph-${key}"></div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
-          <span>0%</span><span>100%</span>
-        </div>
+        <div class="tm-perf-sub" style="font-size:10px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${subtitle || ''}">${subtitle || ''}</div>
       </div>
     `;
   }
 
   function _renderGraph(container, data, maxVal, key) {
-    const colors = { cpu:'var(--cyan)', mem:'var(--purple)', disk:'var(--green)', cloud:'var(--yellow)' };
+    const colors = { cpu:'var(--cyan)', mem:'var(--purple)', scpu:'var(--green)', smem:'var(--yellow)' };
     const w = container.offsetWidth;
     const barW = Math.max(2, Math.floor(w / 22));
     container.innerHTML = data.map((v, i) => `
@@ -253,7 +266,7 @@ function _initTaskManager(body) {
         left:${(i / 20) * 100}%;
         height:${Math.min((v/maxVal)*100, 100)}%;
         width:${barW}px;
-        background:${colors[key]};
+        background:${colors[key] || 'var(--cyan)'};
         opacity:${0.3 + (i/data.length)*0.7};
       "></div>
     `).join('');
@@ -335,14 +348,14 @@ function _initTaskManager(body) {
         <div class="cloud-stat-row">
           <div class="cloud-stat-card">
             <span class="cloud-stat-icon">⬆️</span>
-            <span class="cloud-stat-label">Upload</span>
-            <span class="cloud-stat-value cyan">${net.up || 0} B/s</span>
+            <span class="cloud-stat-label">Upload Rate</span>
+            <span class="cloud-stat-value cyan">${WebOS.FS.formatSize(net.up || 0)}/s</span>
             <span class="cloud-stat-sub">Total: ${WebOS.FS.formatSize(net.totalUp || 0)}</span>
           </div>
           <div class="cloud-stat-card">
             <span class="cloud-stat-icon">⬇️</span>
-            <span class="cloud-stat-label">Download</span>
-            <span class="cloud-stat-value green">${net.down || 0} B/s</span>
+            <span class="cloud-stat-label">Download Rate</span>
+            <span class="cloud-stat-value green">${WebOS.FS.formatSize(net.down || 0)}/s</span>
             <span class="cloud-stat-sub">Total: ${WebOS.FS.formatSize(net.totalDown || 0)}</span>
           </div>
           <div class="cloud-stat-card">

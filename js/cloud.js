@@ -36,12 +36,15 @@ WebOS.Cloud = (() => {
     networkStats: { up: 0, down: 0, totalUp: 0, totalDown: 0 },
   };
 
+  // Transfer log for real rate calculation
+  const _transferLog = [];
+
   // ── Init ──
   function init() {
     _loadFromStorage();
     _fetchCloudStorage();
     _startSyncLoop();
-    _startNetworkSimulation();
+    _startNetworkRateCalculation();
     
     // Connect to WebSockets for real-time cloud updates
     if (typeof io !== 'undefined') {
@@ -176,9 +179,9 @@ WebOS.Cloud = (() => {
       state.cloudStorage[path] = data.file;
       state.usedStorage = _calcUsed();
 
-      // Simulate upload traffic
       state.networkStats.up        += size;
       state.networkStats.totalUp   += size;
+      _recordTransfer(size, 'up');
 
       // Mark as synced in FS
       if (node.type === 'file') {
@@ -218,6 +221,7 @@ WebOS.Cloud = (() => {
     state.usedStorage = _calcUsed();
     state.networkStats.up += size;
     state.networkStats.totalUp += size;
+    _recordTransfer(size, 'up');
     _addSyncLog({ path, action: 'manual upload', size, status: 'success' });
     WebOS.Kernel.Events.emit('cloud:fileSynced', { path, status: 'synced' });
   }
@@ -228,6 +232,7 @@ WebOS.Cloud = (() => {
     const size = file.size || 0;
     state.networkStats.down += size;
     state.networkStats.totalDown += size;
+    _recordTransfer(size, 'down');
     
     const res = await fetch(`/api/cloud/download?path=${encodeURIComponent(path)}`, {
       headers: _authHeaders()
@@ -280,12 +285,34 @@ WebOS.Cloud = (() => {
       .sort((a, b) => b.modified - a.modified);
   }
 
-  // ── Network Simulation ──
-  function _startNetworkSimulation() {
+  // ── Real Network Rate Tracking ──
+  function _recordTransfer(bytes, direction) {
+    _transferLog.push({ timestamp: Date.now(), bytes, direction });
+    // Keep only last 30 seconds
+    const cutoff = Date.now() - 30000;
+    while (_transferLog.length > 0 && _transferLog[0].timestamp < cutoff) {
+      _transferLog.shift();
+    }
+  }
+
+  function _startNetworkRateCalculation() {
     setInterval(() => {
-      // Simulate fluctuating network traffic
-      state.networkStats.up   = Math.floor(Math.random() * 512);
-      state.networkStats.down = Math.floor(Math.random() * 1024);
+      const now = Date.now();
+      const windowMs = 5000; // 5-second sliding window
+      const cutoff = now - windowMs;
+
+      let upBytes = 0, downBytes = 0;
+      for (const entry of _transferLog) {
+        if (entry.timestamp >= cutoff) {
+          if (entry.direction === 'up') upBytes += entry.bytes;
+          else downBytes += entry.bytes;
+        }
+      }
+
+      // Bytes per second
+      state.networkStats.up = Math.round(upBytes / (windowMs / 1000));
+      state.networkStats.down = Math.round(downBytes / (windowMs / 1000));
+
       WebOS.Kernel.Events.emit('cloud:networkStats', { ...state.networkStats });
     }, 2000);
   }
@@ -379,6 +406,41 @@ WebOS.Cloud = (() => {
     Notify({ title: 'Cloud Region Changed', message: `Now connected to ${r.flag} ${r.name}`, type: 'info', icon: '🌐' });
   }
 
+  // ── Versioning & Sharing API ──
+  async function getVersions(path) {
+    const res = await fetch(`/api/cloud/versions?path=${encodeURIComponent(path)}`, { headers: _authHeaders() });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.versions;
+  }
+
+  async function restoreVersion(path, version) {
+    const res = await fetch('/api/cloud/restore', {
+      method: 'POST',
+      headers: { ..._authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, version })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    // Force a re-fetch of metadata
+    await _fetchCloudStorage();
+    return data;
+  }
+
+  async function shareFile(path, shareWith) {
+    const res = await fetch('/api/cloud/share', {
+      method: 'POST',
+      headers: { ..._authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, shareWith })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data;
+  }
+
   function getRegion()    { return REGIONS.find(r => r.id === state.activeRegion) || REGIONS[0]; }
   function getRegions()   { return REGIONS; }
   function getServers()   { return SERVERS; }
@@ -397,6 +459,7 @@ WebOS.Cloud = (() => {
   return {
     init, queueSync, forceSync,
     uploadFile, downloadFile, deleteCloudFile, listCloudFiles, executeScript,
+    getVersions, restoreVersion, shareFile,
     runShellCommand,
     setRegion, getRegion, getRegions, getServers,
     getUsedStorage, getMaxStorage, getSyncLog, getNetworkStats,

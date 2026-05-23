@@ -363,17 +363,22 @@ function _initTerminal(body, params) {
     const user    = WebOS.Kernel.getUser();
     const uptime  = WebOS.Kernel.getUptime();
     const region  = WebOS.Cloud.getRegion();
-    const mem     = WebOS.Kernel.ProcessManager.getMemUsage();
+    const m       = WebOS.Kernel.getMetrics();
+    const memStr  = m.clientMemMB ? `${m.clientMemMB} MB / ${m.clientMemTotalMB} MB (${m.clientMem}%)` : `${WebOS.Kernel.ProcessManager.getMemUsage()}%`;
+    const srvMem  = m.serverMemUsedMB ? `${m.serverMemUsedMB} MB / ${m.serverMemTotalMB} MB` : '—';
+    const cpuStr  = m.serverCpuModel || 'Unknown';
+    const host    = m.serverHostname || 'browser';
     printHTML(`
       <span style="color:var(--cyan)">
         ███╗  ██╗███████╗██╗  ██╗ ██████╗ ███████╗  <span style="color:white">${user}@nexos</span><br>
         ████╗ ██║██╔════╝╚██╗██╔╝██╔═══██╗██╔════╝  <span style="color:var(--text-muted)">──────────────────────</span><br>
         ██╔██╗██║█████╗   ╚███╔╝ ██║   ██║███████╗  <span style="color:var(--purple)">OS</span>:      NexOS 2.4.1 Cloud Edition<br>
-        ██║╚████║██╔══╝   ██╔██╗ ██║   ██║╚════██║  <span style="color:var(--purple)">Host</span>:    Browser / WebKit<br>
-        ██║ ╚███║███████╗██╔╝ ██╗╚██████╔╝███████║  <span style="color:var(--purple)">Kernel</span>:  nexos-2.4.1-cloud<br>
+        ██║╚████║██╔══╝   ██╔██╗ ██║   ██║╚════██║  <span style="color:var(--purple)">Host</span>:    ${host} (${m.serverPlatform || 'browser'})<br>
+        ██║ ╚███║███████╗██╔╝ ██╗╚██████╔╝███████║  <span style="color:var(--purple)">CPU</span>:     ${cpuStr} (${m.serverCores || '?'})<br>
         ╚═╝  ╚══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝  <span style="color:var(--purple)">Shell</span>:   nexsh 1.0<br>
                                                      <span style="color:var(--purple)">Cloud</span>:   ${region.flag} ${region.id}<br>
-                                                     <span style="color:var(--purple)">Memory</span>:  ${mem}% / 8192 MB<br>
+                                                     <span style="color:var(--purple)">Client</span>:  ${memStr}<br>
+                                                     <span style="color:var(--purple)">Server</span>:  ${srvMem}<br>
                                                      <span style="color:var(--purple)">Uptime</span>:  ${uptime}s<br>
       </span>
     `);

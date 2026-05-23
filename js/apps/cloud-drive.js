@@ -38,11 +38,9 @@ AppRegistry.register({
               <div class="fe-nav-item active" data-section="files">
                 <span class="fe-nav-icon">📁</span> My Drive
               </div>
-              ${sessionStorage.getItem('nexos_role') !== 'Standard User' ? `
               <div class="fe-nav-item" data-section="shared">
                 <span class="fe-nav-icon">👥</span> Shared
               </div>
-              ` : ''}
               <div class="fe-nav-item" data-section="recent">
                 <span class="fe-nav-icon">🕐</span> Recent
               </div>
@@ -192,15 +190,11 @@ function _initCloudDrive(body) {
         const allFiles = await WebOS.FS.getAllFiles();
         items = allFiles.filter(f => f.type === 'file').sort((a,b)=>b.modified-a.modified).slice(0,15);
       } else if (section === 'shared') {
-        if (sessionStorage.getItem('nexos_role') !== 'Standard User') {
-          const cloudFiles = WebOS.Cloud.listCloudFiles('/shared');
-          items = cloudFiles.map(f => ({
-            ...f,
-            synced: true // Display files on cloud as already synced
-          }));
-        } else {
-          items = [];
-        }
+        const cloudFiles = WebOS.Cloud.listCloudFiles('/shared');
+        items = cloudFiles.map(f => ({
+          ...f,
+          synced: true // Display files on cloud as already synced
+        }));
       } else {
         items = [];
       }
@@ -289,6 +283,9 @@ function _initCloudDrive(body) {
       <div class="ctx-item" id="cctx-download"><span class="ctx-item-icon">⬇️</span> Download</div>
       ${path.endsWith('.js') ? `<div class="ctx-sep"></div><div class="ctx-item" id="cctx-execute" style="color:var(--cyan)"><span class="ctx-item-icon">⚡</span> Run in Cloud</div>` : ''}
       <div class="ctx-sep"></div>
+      <div class="ctx-item" id="cctx-share"><span class="ctx-item-icon">👥</span> Share...</div>
+      <div class="ctx-item" id="cctx-versions"><span class="ctx-item-icon">⏱️</span> Version History</div>
+      <div class="ctx-sep"></div>
       <div class="ctx-item danger" id="cctx-delete"><span class="ctx-item-icon">🗑️</span> Delete</div>
     `;
     ctx.style.left = e.clientX + 'px'; ctx.style.top = e.clientY + 'px';
@@ -345,6 +342,65 @@ function _initCloudDrive(body) {
           _loadFiles(currentSection); _updateStorage(); 
         }
       });
+    };
+
+    ctx.querySelector('#cctx-share').onclick = () => {
+      ctx.classList.add('hidden');
+      WebOS.Kernel.Dialog.prompt({
+        title: 'Share File',
+        message: `Enter username to share "${path.split('/').pop()}" with:`,
+        onSubmit: async (username) => {
+          if (!username) return;
+          try {
+            await WebOS.Cloud.shareFile(path, username);
+            Notify({title:'Shared', message:`File shared with ${username}`, type:'success', icon:'✅'});
+          } catch(e) {
+            Notify({title:'Error', message:e.message, type:'error', icon:'❌'});
+          }
+        }
+      });
+    };
+
+    ctx.querySelector('#cctx-versions').onclick = async () => {
+      ctx.classList.add('hidden');
+      try {
+        const versions = await WebOS.Cloud.getVersions(path);
+        if (!versions || versions.length === 0) {
+          WebOS.Kernel.Dialog.alert({ title: 'Version History', message: 'No previous versions found for this file.' });
+          return;
+        }
+
+        const html = versions.map(v => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div>
+              <div style="font-weight:bold; color:var(--cyan)">Version ${v.version}</div>
+              <div style="font-size:11px; color:var(--text-muted)">${new Date(v.timestamp).toLocaleString()} • ${WebOS.FS.formatSize(v.size)}</div>
+            </div>
+            <button class="app-btn" onclick="document.dispatchEvent(new CustomEvent('restore_ver', {detail:{path:'${path}', ver:${v.version}}}))">Restore</button>
+          </div>
+        `).join('');
+
+        const dlg = WebOS.Kernel.Dialog.alert({
+          title: `Version History: ${path.split('/').pop()}`,
+          message: `<div style="max-height:300px; overflow-y:auto; padding-right:8px;">${html}</div>`
+        });
+
+        // Add a temporary listener for the restore button clicks inside the HTML
+        const restoreListener = async (e) => {
+          document.removeEventListener('restore_ver', restoreListener);
+          try {
+            await WebOS.Cloud.restoreVersion(e.detail.path, e.detail.ver);
+            Notify({title:'Restored', message:`Restored version ${e.detail.ver}`, type:'success', icon:'✅'});
+            _loadFiles(currentSection);
+          } catch(err) {
+            Notify({title:'Error', message:err.message, type:'error', icon:'❌'});
+          }
+        };
+        document.addEventListener('restore_ver', restoreListener);
+
+      } catch(e) {
+        Notify({title:'Error', message:e.message, type:'error', icon:'❌'});
+      }
     };
   }
 }
