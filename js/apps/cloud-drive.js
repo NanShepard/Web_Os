@@ -195,6 +195,8 @@ function _initCloudDrive(body) {
           ...f,
           synced: true // Display files on cloud as already synced
         }));
+      } else if (section === 'trash') {
+        items = await WebOS.FS.listDir('/trash');
       } else {
         items = [];
       }
@@ -203,27 +205,35 @@ function _initCloudDrive(body) {
     status.textContent = `${items.length} item${items.length!==1?'s':''}`;
 
     if (items.length === 0) {
+      const isTrash = section === 'trash';
       list.innerHTML = `
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--text-muted)">
-          <div style="font-size:52px;opacity:0.4">☁️</div>
-          <div>No files in this section</div>
-          <button class="app-btn primary" id="cd-add-files">Add Files</button>
+          <div style="font-size:52px;opacity:0.4">${isTrash ? '🗑️' : '☁️'}</div>
+          <div>${isTrash ? 'Trash is empty' : 'No files in this section'}</div>
+          ${!isTrash ? `<button class="app-btn primary" id="cd-add-files">Add Files</button>` : ''}
         </div>
       `;
       list.querySelector('#cd-add-files')?.addEventListener('click', () => AppRegistry.launch('files'));
       return;
     }
 
+    // Show Empty Trash button when in trash section
+    const isTrash = section === 'trash';
+
     // Header row
     list.innerHTML = `
+      ${isTrash ? `<div style="display:flex;justify-content:flex-end;padding:6px 10px;border-bottom:1px solid var(--border-subtle)">
+        <button class="app-btn" id="cd-empty-trash" style="color:var(--danger);border-color:var(--danger);font-size:12px">🗑️ Empty Trash</button>
+      </div>` : ''}
       <div class="cloud-file-item" style="opacity:0.4;cursor:default;pointer-events:none;border-bottom:1px solid var(--border-subtle)">
         <span class="cloud-file-icon" style="opacity:0"> </span>
         <div class="cloud-file-info">
           <div class="cloud-file-name" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Name</div>
         </div>
-        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:100px;text-align:right">Modified</span>
+        ${isTrash ? `<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:120px;text-align:right">Original Location</span>` : ''}
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:100px;text-align:right">${isTrash ? 'Deleted' : 'Modified'}</span>
         <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:70px;text-align:right">Size</span>
-        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:80px;text-align:right">Status</span>
+        ${!isTrash ? `<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;width:80px;text-align:right">Status</span>` : ''}
       </div>
       ${items.map(item => {
         const syncStatus = item.synced !== false ? 'synced' : WebOS.Cloud.syncQueue.includes(item.path) ? 'syncing' : 'pending';
@@ -233,18 +243,34 @@ function _initCloudDrive(body) {
             <span class="cloud-file-icon">${WebOS.FS.getFileIcon(item.name, item.type)}</span>
             <div class="cloud-file-info">
               <div class="cloud-file-name">${item.name}</div>
-              <div class="cloud-file-meta">${item.path}</div>
+              <div class="cloud-file-meta">${isTrash ? (item._originalPath || item.path) : item.path}</div>
             </div>
-            <span style="font-size:11px;color:var(--text-muted);width:100px;text-align:right;flex-shrink:0">${WebOS.FS.formatDate(item.modified)}</span>
+            ${isTrash ? `<span style="font-size:11px;color:var(--text-disabled);width:120px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${item._originalPath || ''}">${item._originalPath || '—'}</span>` : ''}
+            <span style="font-size:11px;color:var(--text-muted);width:100px;text-align:right;flex-shrink:0">${isTrash ? WebOS.FS.formatDate(item._trashedAt) : WebOS.FS.formatDate(item.modified)}</span>
             <span style="font-size:11px;color:var(--text-muted);width:70px;text-align:right;flex-shrink:0">${item.type==='dir'?'—':WebOS.FS.formatSize(item.size)}</span>
-            <span class="cloud-file-sync-status sync-status-${syncStatus}" style="flex-shrink:0">
+            ${!isTrash ? `<span class="cloud-file-sync-status sync-status-${syncStatus}" style="flex-shrink:0">
               <span class="sync-icon">${syncStatus==='syncing'?'🔄':syncStatus==='synced'?'✓':syncStatus==='pending'?'⏳':'✕'}</span>
               ${syncStatus}
-            </span>
+            </span>` : ''}
           </div>
         `;
       }).join('')}
     `;
+
+    // Empty Trash button handler
+    const emptyTrashBtn = list.querySelector('#cd-empty-trash');
+    if (emptyTrashBtn) {
+      emptyTrashBtn.onclick = () => {
+        WebOS.Kernel.Dialog.confirm({
+          title: 'Empty Trash', message: 'Permanently delete all items in Trash? This cannot be undone.', dangerous: true,
+          onConfirm: async () => {
+            await WebOS.FS.emptyTrash();
+            Notify({ title: 'Trash Emptied', message: 'All items permanently deleted', type: 'success', icon: '🗑️' });
+            _loadFiles(currentSection);
+          }
+        });
+      };
+    }
 
     // Item click
     list.querySelectorAll('.cloud-file-item[data-path]').forEach(el => {
@@ -254,23 +280,29 @@ function _initCloudDrive(body) {
         el.classList.add('selected');
         status.textContent = `Selected: ${el.dataset.path}`;
         if (timer) { clearTimeout(timer); timer = null;
-          // Double click - open file
-          const item = items.find(i => i.path === el.dataset.path);
-          if (item?.type === 'file') {
-            WebOS.FS.exists(el.dataset.path).then(async (exists) => {
-              if (!exists) {
-                Notify({title:'Downloading',message:`Fetching ${item.name} from Cloud...`,type:'info',icon:'☁️'});
-                await WebOS.Cloud.downloadFile(el.dataset.path).catch(e => Notify({title:'Error',message:'Failed to download file',type:'error'}));
-              }
-              AppRegistry.launch('text-editor', { path: el.dataset.path });
-            });
+          // Double click - open file (but not from trash)
+          if (!isTrash) {
+            const item = items.find(i => i.path === el.dataset.path);
+            if (item?.type === 'file') {
+              WebOS.FS.exists(el.dataset.path).then(async (exists) => {
+                if (!exists) {
+                  Notify({title:'Downloading',message:`Fetching ${item.name} from Cloud...`,type:'info',icon:'☁️'});
+                  await WebOS.Cloud.downloadFile(el.dataset.path).catch(e => Notify({title:'Error',message:'Failed to download file',type:'error'}));
+                }
+                AppRegistry.launch('text-editor', { path: el.dataset.path });
+              });
+            }
           }
         } else { timer = setTimeout(() => timer = null, 300); }
       });
 
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        _showCloudCtxMenu(e, el.dataset.path, items.find(i=>i.path===el.dataset.path));
+        if (isTrash) {
+          _showTrashCtxMenu(e, el.dataset.path, items.find(i=>i.path===el.dataset.path));
+        } else {
+          _showCloudCtxMenu(e, el.dataset.path, items.find(i=>i.path===el.dataset.path));
+        }
       });
     });
   }
@@ -335,10 +367,14 @@ function _initCloudDrive(body) {
     ctx.querySelector('#cctx-delete').onclick = () => {
       ctx.classList.add('hidden');
       WebOS.Kernel.Dialog.confirm({
-        title:'Delete Cloud File', message:`Delete "${path.split('/').pop()}" from cloud and local storage?`, dangerous:true,
+        title:'Move to Trash', message:`Move "${path.split('/').pop()}" to Trash?`, dangerous:true,
         onConfirm: async () => { 
           await WebOS.Cloud.deleteCloudFile(path).catch(()=>{});
-          await WebOS.FS.deleteEntry(path).catch(()=>{}); 
+          await WebOS.FS.moveToTrash(path).catch(async () => {
+            // If moveToTrash fails (e.g. file not in local FS), fall back to deleteEntry
+            await WebOS.FS.deleteEntry(path).catch(()=>{});
+          });
+          Notify({ title: 'Moved to Trash', message: `"${path.split('/').pop()}" moved to Trash`, type: 'info', icon: '🗑️', duration: 3000 });
           _loadFiles(currentSection); _updateStorage(); 
         }
       });
@@ -401,6 +437,43 @@ function _initCloudDrive(body) {
       } catch(e) {
         Notify({title:'Error', message:e.message, type:'error', icon:'❌'});
       }
+    };
+  }
+
+  function _showTrashCtxMenu(e, path, item) {
+    const ctx = document.getElementById('context-menu');
+    const originalPath = item?._originalPath || 'Unknown';
+    ctx.innerHTML = `
+      <div class="ctx-item" style="opacity:0.5;pointer-events:none;font-size:11px"><span class="ctx-item-icon">📍</span> From: ${originalPath}</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" id="tctx-restore"><span class="ctx-item-icon">♻️</span> Restore</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item danger" id="tctx-permadelete"><span class="ctx-item-icon">💀</span> Delete Permanently</div>
+    `;
+    ctx.style.left = e.clientX + 'px'; ctx.style.top = e.clientY + 'px';
+    ctx.classList.remove('hidden');
+
+    ctx.querySelector('#tctx-restore').onclick = async () => {
+      ctx.classList.add('hidden');
+      try {
+        const restoredPath = await WebOS.FS.restoreFromTrash(path);
+        Notify({ title: 'Restored', message: `"${item?.name || path.split('/').pop()}" restored to ${restoredPath}`, type: 'success', icon: '♻️' });
+        _loadFiles(currentSection);
+      } catch(err) {
+        Notify({ title: 'Restore Failed', message: err.message, type: 'error', icon: '❌' });
+      }
+    };
+
+    ctx.querySelector('#tctx-permadelete').onclick = () => {
+      ctx.classList.add('hidden');
+      WebOS.Kernel.Dialog.confirm({
+        title: 'Delete Permanently', message: `Permanently delete "${item?.name || path.split('/').pop()}"? This cannot be undone.`, dangerous: true,
+        onConfirm: async () => {
+          await WebOS.FS.permanentlyDelete(path);
+          Notify({ title: 'Permanently Deleted', message: 'Item has been permanently deleted', type: 'info', icon: '💀' });
+          _loadFiles(currentSection);
+        }
+      });
     };
   }
 }

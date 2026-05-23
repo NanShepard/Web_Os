@@ -196,6 +196,168 @@ WebOS.FS = (() => {
     WebOS.Kernel.Events.emit('fs:change', { path: normalized, type: 'delete' });
   }
 
+  // ── Trash / Recycle Bin ──
+  async function moveToTrash(path) {
+    const normalized = normalizePath(path);
+    const node = await _get(normalized);
+    if (!node) throw new Error(`Not found: ${path}`);
+
+    // Don't trash items already in trash, or the trash dir itself
+    if (normalized === '/trash' || normalized.startsWith('/trash/')) {
+      throw new Error('Item is already in Trash');
+    }
+
+    // Generate a unique name in /trash to avoid collisions
+    let trashName = node.name;
+    let trashPath = '/trash/' + trashName;
+    if (await _get(trashPath)) {
+      const ts = Date.now();
+      if (node.type === 'file') {
+        const dotIdx = trashName.lastIndexOf('.');
+        if (dotIdx > 0) {
+          trashName = trashName.substring(0, dotIdx) + '_' + ts + trashName.substring(dotIdx);
+        } else {
+          trashName += '_' + ts;
+        }
+      } else {
+        trashName += '_' + ts;
+      }
+      trashPath = '/trash/' + trashName;
+    }
+
+    if (node.type === 'dir') {
+      // Move directory and all children
+      await _put({
+        ...node,
+        path: trashPath,
+        name: trashName,
+        parent: '/trash',
+        _originalPath: normalized,
+        _trashedAt: Date.now(),
+      });
+      const children = await listDir(normalized);
+      for (const child of children) {
+        const childNewPath = trashPath + child.path.substring(normalized.length);
+        const childNewParent = childNewPath.substring(0, childNewPath.lastIndexOf('/')) || '/trash';
+        await _put({
+          ...child,
+          path: childNewPath,
+          parent: childNewParent,
+          _originalPath: child.path,
+          _trashedAt: Date.now(),
+        });
+        await _delete(child.path);
+      }
+    } else {
+      await _put({
+        ...node,
+        path: trashPath,
+        name: trashName,
+        parent: '/trash',
+        _originalPath: normalized,
+        _trashedAt: Date.now(),
+      });
+    }
+
+    await _delete(normalized);
+    WebOS.Kernel.Events.emit('fs:change', { path: normalized, type: 'trash' });
+  }
+
+  async function restoreFromTrash(trashPath) {
+    const normalized = normalizePath(trashPath);
+    const node = await _get(normalized);
+    if (!node) throw new Error(`Not found: ${trashPath}`);
+    if (!node._originalPath) throw new Error('No restore info — item was not trashed via Recycle Bin');
+
+    const originalPath = node._originalPath;
+    const originalParent = originalPath.substring(0, originalPath.lastIndexOf('/')) || '/';
+    const originalName = originalPath.substring(originalPath.lastIndexOf('/') + 1);
+
+    // Ensure the original parent directory exists; recreate if needed
+    if (originalParent !== '/') {
+      const parentNode = await _get(originalParent);
+      if (!parentNode) {
+        // Recreate parent directories
+        const parts = originalParent.split('/').filter(Boolean);
+        let cur = '';
+        for (const part of parts) {
+          cur += '/' + part;
+          if (!(await _get(cur))) {
+            await _put({ path: cur, type: 'dir', name: part, parent: cur.substring(0, cur.lastIndexOf('/')) || '/', created: Date.now(), modified: Date.now() });
+          }
+        }
+      }
+    }
+
+    // Handle name collision at original location
+    let restorePath = originalPath;
+    let restoreName = originalName;
+    if (await _get(restorePath)) {
+      const ts = Date.now();
+      if (node.type === 'file') {
+        const dotIdx = restoreName.lastIndexOf('.');
+        if (dotIdx > 0) {
+          restoreName = restoreName.substring(0, dotIdx) + '_restored_' + ts + restoreName.substring(dotIdx);
+        } else {
+          restoreName += '_restored_' + ts;
+        }
+      } else {
+        restoreName += '_restored_' + ts;
+      }
+      restorePath = (originalParent === '/' ? '' : originalParent) + '/' + restoreName;
+    }
+
+    // Remove trash metadata fields
+    const { _originalPath, _trashedAt, ...cleanNode } = node;
+    await _put({
+      ...cleanNode,
+      path: restorePath,
+      name: restoreName,
+      parent: originalParent,
+      modified: Date.now(),
+    });
+
+    // If directory, restore children too
+    if (node.type === 'dir') {
+      const children = await _getAllUnder(normalized);
+      for (const child of children) {
+        const childRelative = child.path.substring(normalized.length);
+        const childNewPath = restorePath + childRelative;
+        const childNewParent = childNewPath.substring(0, childNewPath.lastIndexOf('/')) || '/';
+        const { _originalPath: _cop, _trashedAt: _cta, ...cleanChild } = child;
+        await _put({
+          ...cleanChild,
+          path: childNewPath,
+          parent: childNewParent,
+          modified: Date.now(),
+        });
+        await _delete(child.path);
+      }
+    }
+
+    await _delete(normalized);
+    WebOS.Kernel.Events.emit('fs:change', { path: restorePath, type: 'restore' });
+    return restorePath;
+  }
+
+  async function permanentlyDelete(path) {
+    return deleteEntry(path);
+  }
+
+  async function emptyTrash() {
+    const trashItems = await listDir('/trash');
+    for (const item of trashItems) {
+      await deleteEntry(item.path);
+    }
+    WebOS.Kernel.Events.emit('fs:change', { path: '/trash', type: 'emptyTrash' });
+  }
+
+  // Helper: get all descendants under a path
+  async function _getAllUnder(parentPath) {
+    const all = await getAllFiles();
+    return all.filter(f => f.path !== parentPath && f.path.startsWith(parentPath + '/'));
+  }
+
   async function renameEntry(oldPath, newName) {
     const oldNorm = normalizePath(oldPath);
     const node    = await _get(oldNorm);
@@ -361,5 +523,5 @@ WebOS.FS = (() => {
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  return { init, listDir, readFile, writeFile, createDir, deleteEntry, renameEntry, copyEntry, moveEntry, exists, getStat, getAllFiles, getTotalSize, markSynced, normalizePath, getMimeType, getFileIcon, formatSize, formatDate };
+  return { init, listDir, readFile, writeFile, createDir, deleteEntry, renameEntry, copyEntry, moveEntry, moveToTrash, restoreFromTrash, permanentlyDelete, emptyTrash, exists, getStat, getAllFiles, getTotalSize, markSynced, normalizePath, getMimeType, getFileIcon, formatSize, formatDate };
 })();

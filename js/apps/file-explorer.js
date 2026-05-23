@@ -139,10 +139,21 @@ function _init(body, startPath) {
     if (e.key === 'Delete' && state.selected) {
       e.preventDefault();
       const sel = state.selected;
-      WebOS.Kernel.Dialog.confirm({
-        title: 'Delete', message: `Delete "${sel.name}"? This cannot be undone.`, dangerous: true,
-        onConfirm: async () => { await WebOS.FS.deleteEntry(sel.path); loadDir(state.currentPath); }
-      });
+      if (state.currentPath === '/trash') {
+        WebOS.Kernel.Dialog.confirm({
+          title: 'Delete Permanently', message: `Permanently delete "${sel.name}"? This cannot be undone.`, dangerous: true,
+          onConfirm: async () => { await WebOS.FS.permanentlyDelete(sel.path); loadDir(state.currentPath); }
+        });
+      } else {
+        WebOS.Kernel.Dialog.confirm({
+          title: 'Move to Trash', message: `Move "${sel.name}" to Trash?`, dangerous: true,
+          onConfirm: async () => {
+            await WebOS.FS.moveToTrash(sel.path);
+            Notify({ title: 'Moved to Trash', message: `"${sel.name}" moved to Trash`, type: 'info', icon: '🗑️', duration: 3000 });
+            loadDir(state.currentPath);
+          }
+        });
+      }
     }
   });
 
@@ -232,9 +243,36 @@ function _init(body, startPath) {
   function renderItems() {
     const content = body.querySelector('#fe-content');
     const statusItems = body.querySelector('#fe-status-items');
+    const isTrash = state.currentPath === '/trash';
+
+    // Show/hide Empty Trash button in toolbar
+    let emptyTrashBtn = body.querySelector('#fe-empty-trash');
+    if (isTrash) {
+      if (!emptyTrashBtn) {
+        emptyTrashBtn = document.createElement('button');
+        emptyTrashBtn.className = 'app-btn';
+        emptyTrashBtn.id = 'fe-empty-trash';
+        emptyTrashBtn.style.cssText = 'color:var(--danger);border-color:var(--danger)';
+        emptyTrashBtn.innerHTML = '🗑️ Empty Trash';
+        body.querySelector('.app-toolbar').appendChild(emptyTrashBtn);
+      }
+      emptyTrashBtn.style.display = '';
+      emptyTrashBtn.onclick = () => {
+        WebOS.Kernel.Dialog.confirm({
+          title: 'Empty Trash', message: 'Permanently delete all items in Trash? This cannot be undone.', dangerous: true,
+          onConfirm: async () => {
+            await WebOS.FS.emptyTrash();
+            Notify({ title: 'Trash Emptied', message: 'All items permanently deleted', type: 'success', icon: '🗑️' });
+            loadDir(state.currentPath);
+          }
+        });
+      };
+    } else if (emptyTrashBtn) {
+      emptyTrashBtn.style.display = 'none';
+    }
 
     if (state.items.length === 0) {
-      content.innerHTML = `<div class="fe-empty"><div class="fe-empty-icon">📂</div><span>This folder is empty</span></div>`;
+      content.innerHTML = `<div class="fe-empty"><div class="fe-empty-icon">${isTrash ? '🗑️' : '📂'}</div><span>${isTrash ? 'Trash is empty' : 'This folder is empty'}</span></div>`;
       statusItems.textContent = '0 items';
       return;
     }
@@ -246,6 +284,7 @@ function _init(body, startPath) {
         <div class="fe-item" data-path="${item.path}" data-type="${item.type}" data-name="${item.name}">
           <span class="fe-item-icon">${WebOS.FS.getFileIcon(item.name, item.type)}</span>
           <span class="fe-item-name">${item.name}</span>
+          ${isTrash && item._originalPath ? `<span class="fe-item-origin" style="font-size:9px;color:var(--text-disabled);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;" title="From: ${item._originalPath}">📍 ${item._originalPath}</span>` : ''}
         </div>
       `).join('')}</div>`;
     } else {
@@ -254,14 +293,16 @@ function _init(body, startPath) {
           <div class="fe-list-item" style="opacity:0.5;cursor:default;border-bottom:1px solid var(--border-subtle)">
             <div style="width:22px"></div>
             <div class="fe-list-name" style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Name</div>
-            <div class="fe-list-date" style="font-weight:600;font-size:11px;text-transform:uppercase">Modified</div>
+            ${isTrash ? `<div class="fe-list-date" style="font-weight:600;font-size:11px;text-transform:uppercase">Original Location</div>` : ''}
+            <div class="fe-list-date" style="font-weight:600;font-size:11px;text-transform:uppercase">${isTrash ? 'Deleted' : 'Modified'}</div>
             <div class="fe-list-size" style="font-weight:600;font-size:11px;text-transform:uppercase">Size</div>
           </div>
           ${state.items.map(item => `
             <div class="fe-list-item" data-path="${item.path}" data-type="${item.type}" data-name="${item.name}">
               <span class="fe-list-icon">${WebOS.FS.getFileIcon(item.name, item.type)}</span>
               <span class="fe-list-name">${item.name}</span>
-              <span class="fe-list-date">${WebOS.FS.formatDate(item.modified)}</span>
+              ${isTrash ? `<span class="fe-list-date" style="font-size:11px;color:var(--text-disabled);" title="${item._originalPath || ''}">${item._originalPath || '—'}</span>` : ''}
+              <span class="fe-list-date">${isTrash ? WebOS.FS.formatDate(item._trashedAt) : WebOS.FS.formatDate(item.modified)}</span>
               <span class="fe-list-size">${item.type === 'dir' ? '—' : WebOS.FS.formatSize(item.size)}</span>
             </div>
           `).join('')}
@@ -281,14 +322,23 @@ function _init(body, startPath) {
 
         if (clickTimer) {
           clearTimeout(clickTimer); clickTimer = null;
-          // Double click
-          openItem(el.dataset.path, el.dataset.type, el.dataset.name);
+          // Double click — don't open items from trash directly
+          if (!isTrash) {
+            openItem(el.dataset.path, el.dataset.type, el.dataset.name);
+          }
         } else {
           clickTimer = setTimeout(() => { clickTimer = null; }, 280);
         }
       });
 
-      el.addEventListener('contextmenu', (e) => { e.preventDefault(); _showItemCtxMenu(e, el.dataset.path, el.dataset.type, el.dataset.name); });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (isTrash) {
+          _showTrashCtxMenu(e, el.dataset.path, el.dataset.type, el.dataset.name);
+        } else {
+          _showItemCtxMenu(e, el.dataset.path, el.dataset.type, el.dataset.name);
+        }
+      });
     });
   }
 
@@ -389,9 +439,48 @@ function _init(body, startPath) {
     ctx.querySelector('#ictx-delete').onclick = () => {
       ctx.classList.add('hidden');
       WebOS.Kernel.Dialog.confirm({
-        title: 'Delete', message: `Delete "${name}"? This cannot be undone.`, dangerous: true,
+        title: 'Move to Trash', message: `Move "${name}" to Trash?`, dangerous: true,
         onConfirm: async () => {
-          await WebOS.FS.deleteEntry(path);
+          await WebOS.FS.moveToTrash(path);
+          Notify({ title: 'Moved to Trash', message: `"${name}" moved to Trash`, type: 'info', icon: '🗑️', duration: 3000 });
+          loadDir(state.currentPath);
+        }
+      });
+    };
+  }
+
+  function _showTrashCtxMenu(e, path, type, name) {
+    const ctx = document.getElementById('context-menu');
+    const item = state.items.find(i => i.path === path);
+    const originalPath = item?._originalPath || 'Unknown';
+    ctx.innerHTML = `
+      <div class="ctx-item" style="opacity:0.5;pointer-events:none;font-size:11px"><span class="ctx-item-icon">📍</span> From: ${originalPath}</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" id="tctx-restore"><span class="ctx-item-icon">♻️</span> Restore</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item danger" id="tctx-permadelete"><span class="ctx-item-icon">💀</span> Delete Permanently</div>
+    `;
+    ctx.style.left = e.clientX + 'px'; ctx.style.top = e.clientY + 'px';
+    ctx.classList.remove('hidden');
+
+    ctx.querySelector('#tctx-restore').onclick = async () => {
+      ctx.classList.add('hidden');
+      try {
+        const restoredPath = await WebOS.FS.restoreFromTrash(path);
+        Notify({ title: 'Restored', message: `"${name}" restored to ${restoredPath}`, type: 'success', icon: '♻️' });
+        loadDir(state.currentPath);
+      } catch(err) {
+        Notify({ title: 'Restore Failed', message: err.message, type: 'error', icon: '❌' });
+      }
+    };
+
+    ctx.querySelector('#tctx-permadelete').onclick = () => {
+      ctx.classList.add('hidden');
+      WebOS.Kernel.Dialog.confirm({
+        title: 'Delete Permanently', message: `Permanently delete "${name}"? This cannot be undone.`, dangerous: true,
+        onConfirm: async () => {
+          await WebOS.FS.permanentlyDelete(path);
+          Notify({ title: 'Permanently Deleted', message: `"${name}" has been permanently deleted`, type: 'info', icon: '💀' });
           loadDir(state.currentPath);
         }
       });
